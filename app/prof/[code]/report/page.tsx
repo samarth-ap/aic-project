@@ -50,7 +50,13 @@ export default function ReportPage({ params }: { params: Promise<{ code: string 
           <div><div className="stat">{r.stats.active_devices}</div><div className="stat-label">students</div></div>
           <div><div className="stat">{r.stats.total_taps}</div><div className="stat-label">taps</div></div>
           <div><div className="stat">{r.moments.length}</div><div className="stat-label">confusion moments</div></div>
-          <div><div className="stat">{r.stats.questions}</div><div className="stat-label">questions</div></div>
+          <div><div className="stat">{r.stats.questions}</div><div className="stat-label">questions to you</div></div>
+          {(r.stats.tutor_questions ?? 0) > 0 && (
+            <div>
+              <div className="stat">{r.stats.tutor_questions}</div>
+              <div className="stat-label">asked the AI tutor ({r.stats.tutor_students} students)</div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -104,9 +110,16 @@ export default function ReportPage({ params }: { params: Promise<{ code: string 
         {r.question_clusters.length > 0 && (
           <section className="card stack">
             <h2>What students asked</h2>
+            <p className="small muted">Questions to the AI tutor are private chats, so they appear only as paraphrased themes.</p>
             {r.question_clusters.map((q, i) => (
               <div key={i}>
-                <div className="row small"><strong>{q.theme}</strong><span className="pill">{q.count}</span></div>
+                <div className="row small">
+                  <strong>{q.theme}</strong>
+                  <span className="pill">{q.count}</span>
+                  {q.source && q.source !== "professor" && (
+                    <span className="pill lost">{q.source === "both" ? "you + AI tutor" : "AI tutor"}</span>
+                  )}
+                </div>
                 <div className="muted small">“{q.representative_question}”</div>
               </div>
             ))}

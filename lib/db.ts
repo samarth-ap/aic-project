@@ -91,6 +91,17 @@ export function db(): DatabaseSync {
       last_seen INTEGER NOT NULL,
       PRIMARY KEY (session_id, device_id)
     );
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL REFERENCES sessions(id),
+      device_id TEXT NOT NULL,
+      role TEXT NOT NULL,          -- 'user' | 'assistant'
+      kind TEXT NOT NULL,          -- 'text' | 'lost' | 'example'  (lost/example = auto prompt from a tap)
+      t_ms INTEGER NOT NULL,       -- lecture time when sent
+      content TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS chat_device ON chat_messages(session_id, device_id, id);
     CREATE TABLE IF NOT EXISTS reports (
       session_id INTEGER PRIMARY KEY REFERENCES sessions(id),
       json TEXT NOT NULL,
@@ -208,4 +219,51 @@ export function getReport<T>(sessionId: number): T | null {
     | { json: string }
     | undefined;
   return row ? (JSON.parse(row.json) as T) : null;
+}
+
+// ---------- AI tutor chat (one private thread per student per lecture) ----------
+
+export type ChatKind = "text" | "lost" | "example";
+export interface ChatMessage {
+  id: number;
+  session_id: number;
+  device_id: string;
+  role: "user" | "assistant";
+  kind: ChatKind;
+  t_ms: number;
+  content: string;
+  created_at: number;
+}
+
+export function addChatMessage(
+  sessionId: number,
+  deviceId: string,
+  role: ChatMessage["role"],
+  kind: ChatKind,
+  tMs: number,
+  content: string,
+) {
+  db()
+    .prepare(
+      "INSERT INTO chat_messages (session_id, device_id, role, kind, t_ms, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(sessionId, deviceId, role, kind, Math.round(tMs), content, Date.now());
+}
+export function getChat(sessionId: number, deviceId: string): ChatMessage[] {
+  return db()
+    .prepare("SELECT * FROM chat_messages WHERE session_id = ? AND device_id = ? ORDER BY id")
+    .all(sessionId, deviceId) as unknown as ChatMessage[];
+}
+/** Messages this device sent in the last `windowMs` (for rate limiting). */
+export function recentChatCount(sessionId: number, deviceId: string, sinceEpochMs: number): number {
+  const row = db()
+    .prepare("SELECT COUNT(*) AS n FROM chat_messages WHERE session_id = ? AND device_id = ? AND role = 'user' AND created_at >= ?")
+    .get(sessionId, deviceId, sinceEpochMs) as { n: number };
+  return row.n;
+}
+/** Typed questions students asked the AI tutor (not tap prompts). For the professor's themes. */
+export function getChatQuestions(sessionId: number): { device_id: string; t_ms: number; text: string }[] {
+  return db()
+    .prepare("SELECT device_id, t_ms, content AS text FROM chat_messages WHERE session_id = ? AND role = 'user' AND kind = 'text' ORDER BY t_ms")
+    .all(sessionId) as unknown as { device_id: string; t_ms: number; text: string }[];
 }

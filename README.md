@@ -5,6 +5,9 @@
 UW AI Collective · Project Cycles · Demo Day (December)
 
 During lecture, students tap **I'm lost** (or *too fast* / *example please* / *got it*) on their phones, anonymously.
+
+**Tapping "I'm lost" opens a private AI tutor** that has heard the lecture so far (live captions). It explains what the professor just said in a few sentences, quoting their words, and the student can ask follow-ups. During class it keeps answers short and nudges them to keep listening; after class the same chat goes deeper with the full transcript.
+
 Afterward, the app lines the taps up with the lecture transcript and Claude:
 
 - splits the lecture into **concepts** and maps each confusion spike to one,
@@ -40,13 +43,45 @@ npm run dev                     # http://localhost:3000
 
 Delete `data/` to reset the database.
 
+## Run it on your laptop (step by step)
+
+1. **Install Node.js 22.13 or newer** from https://nodejs.org (LTS is fine). Check with `node -v`.
+2. **Get the code and install packages**
+   ```bash
+   git clone https://github.com/samarth-ap/aic-project.git
+   cd aic-project
+   npm install
+   ```
+3. **Add a Claude API key** (needed for the AI tutor and AI reports; without it everything else still runs in offline mode).
+   Create a key at https://platform.claude.com → API keys, add a few dollars of credit, then:
+   ```bash
+   cp .env.example .env.local
+   ```
+   Open `.env.local` and paste the key after `ANTHROPIC_API_KEY=`. Never commit this file (it's already in `.gitignore`).
+4. **Optional: demo data** — `npm run seed` creates two analyzed MATH 208 lectures and prints their links.
+5. **Start it** — `npm run dev`, then open http://localhost:3000.
+6. **Try the AI tutor yourself (one laptop)**
+   - Home page → *I'm teaching* → **Start lecture**. Keep this tab open: it's the professor view.
+   - Click **Start live captions** and allow the microphone (use Chrome or Edge). Talk about something for a minute, or play a lecture video out loud.
+   - Open the student link (`http://localhost:3000/s/CODE`) in a second tab, tap **I'm lost**, and the tutor explains what was just said.
+7. **Use real phones (same Wi-Fi)**
+   - Find your laptop's IP: `ipconfig getifaddr en0` (Mac) or `ipconfig` (Windows), e.g. `192.168.1.20`.
+   - Put `PUBLIC_URL=http://192.168.1.20:3000` in `.env.local` and restart `npm run dev`, so the QR code points at your laptop.
+   - Keep the professor view on `http://localhost:3000` (browsers only allow the microphone on localhost or https). Phones scan the QR code.
+   - Campus Wi-Fi (eduroam) often blocks phone-to-laptop traffic. Use a phone hotspot, or a tunnel like `npx localtunnel --port 3000` / Cloudflare Tunnel and set `PUBLIC_URL` to the tunnel URL.
+8. **Rehearse a full class** — `npm run simulate -- CODE 30 http://localhost:3000` adds 30 fake students; press Enter for a confusion spike. Then **End lecture & analyze** on the professor view.
+
+**Cost:** tutor replies use Claude Sonnet 5.5 (a fraction of a cent to about a cent each, more for a long transcript); the after-class report uses Claude Opus 5.5 (cents per lecture). Each phone is limited to 6 tutor messages a minute (`CHAT_PER_MINUTE`).
+
 ## How it works
 
 ```
  Student phone (/s/CODE)         Professor laptop (/prof/CODE)
    tap lost / too fast /           QR code + live confusion chart
    example / got it + questions    live captions (Web Speech API) or .vtt/.srt upload
-          │                                   │
+          │  "I'm lost" also opens the AI tutor:
+          │  POST /api/sessions/CODE/chat → Claude streams an explanation
+          │  grounded in the transcript so far (lib/analysis/tutor.ts)
           ▼                                   ▼
    POST /api/sessions/CODE/tap        POST /api/sessions/CODE/transcript
    (server timestamps, 8s cooldown)   (server timestamps each phrase)

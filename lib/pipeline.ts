@@ -1,5 +1,5 @@
 // Gathers a session's data from the DB, builds the report, and stores it.
-import { countPresence, getQuestions, getTaps, getTranscript, saveReport, type Session } from "./db";
+import { countPresence, getChatQuestions, getQuestions, getTaps, getTranscript, saveReport, type Session } from "./db";
 import { buildReport, type Report } from "./analysis/report";
 
 export async function analyzeSession(s: Session): Promise<Report> {
@@ -7,6 +7,7 @@ export async function analyzeSession(s: Session): Promise<Report> {
     session: s,
     taps: getTaps(s.id),
     questions: getQuestions(s.id),
+    tutorQuestions: getChatQuestions(s.id),
     transcript: getTranscript(s.id),
     joinedDevices: countPresence(s.id),
   });

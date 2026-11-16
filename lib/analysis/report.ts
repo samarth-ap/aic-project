@@ -51,7 +51,10 @@ const AiReport = z.object({
     z.object({
       theme: z.string(),
       count: z.number(),
-      representative_question: z.string(),
+      representative_question: z
+        .string()
+        .describe("A representative question. For AI-tutor questions, paraphrase it so no student can be identified"),
+      source: z.enum(["professor", "ai_tutor", "both"]).describe("Where these questions were asked"),
       concept_id: z.string().nullable(),
     }),
   ),
@@ -72,7 +75,7 @@ export interface Report {
   mode: "ai" | "offline";
   warning?: string;
   session: { code: string; title: string; course: string; duration_ms: number };
-  stats: { active_devices: number; total_taps: number; questions: number };
+  stats: { active_devices: number; total_taps: number; questions: number; tutor_questions: number; tutor_students: number };
   timeline: { start_ms: number; rate: number; devices: number }[];
   headline: string;
   concepts: { id: string; name: string; start_ms: number; end_ms: number; summary: string; prerequisite_ids: string[]; confusion: number }[];
@@ -91,7 +94,13 @@ export interface Report {
     suggested_fix: string;
     catch_up: { title: string; explanation: string; practice_question: string; practice_answer: string };
   }[];
-  question_clusters: { theme: string; count: number; representative_question: string; concept_id: string | null }[];
+  question_clusters: {
+    theme: string;
+    count: number;
+    representative_question: string;
+    source?: "professor" | "ai_tutor" | "both";
+    concept_id: string | null;
+  }[];
   recap_slide: { title: string; bullets: string[] };
   clarification_post: string;
   /** Hashed device ids per moment, for catch-up lookup. Stripped before sending to professors. */
@@ -104,6 +113,8 @@ export interface ReportInput {
   session: { code: string; title: string; course: string; started_at: number; ended_at: number | null };
   taps: RawTap[];
   questions: { t_ms: number; text: string }[];
+  /** Questions students typed to the AI tutor. Only themes reach the professor. */
+  tutorQuestions?: { device_id: string; t_ms: number; text: string }[];
   transcript: Seg[];
   joinedDevices: number;
 }
@@ -164,6 +175,7 @@ async function analyzeWithClaude(input: ReportInput, signal: Signal): Promise<Ai
     )
     .join("\n");
   const questions = input.questions.map((q) => `- [${fmt(q.t_ms)}] ${q.text}`).join("\n");
+  const tutorQuestions = (input.tutorQuestions ?? []).map((q) => `- [${fmt(q.t_ms)}] ${q.text}`).join("\n");
 
   const user = `Lecture: "${input.session.title}"${input.session.course ? ` (${input.session.course})` : ""}
 
@@ -175,11 +187,17 @@ ${stampedTranscript(input.transcript)}
 ${moments || "(no moment passed the threshold)"}
 </confusion_moments>
 
-<anonymous_questions>
+<anonymous_questions_to_professor>
 ${questions || "(none)"}
-</anonymous_questions>
+</anonymous_questions_to_professor>
 
-Split the lecture into concepts, then analyze every confusion moment (one entry per moment id), cluster the questions, and write the recap slide and clarification post.`;
+<questions_students_asked_the_ai_tutor>
+${tutorQuestions || "(none)"}
+</questions_students_asked_the_ai_tutor>
+
+Split the lecture into concepts, then analyze every confusion moment (one entry per moment id), cluster the questions, and write the recap slide and clarification post.
+
+Questions to the AI tutor came from private chats: they are the most honest signal of what students didn't understand, so use them when explaining moments and when clustering. Cluster both sources together and set each cluster's source. Never quote an AI-tutor question verbatim; paraphrase, and drop any cluster that would identify one student (names, personal details).`;
 
   const response = await client.beta.messages.parse({
     model: MODEL,
@@ -234,10 +252,12 @@ function offlineReport(input: ReportInput, signal: Signal): AiReport {
         },
       };
     }),
+    // Offline there's no AI to paraphrase, so AI-tutor questions stay private (count only).
     question_clusters: input.questions.map((q) => ({
       theme: "Question",
       count: 1,
       representative_question: q.text,
+      source: "professor" as const,
       concept_id: null,
     })),
     recap_slide: {
@@ -296,7 +316,13 @@ function assemble(input: ReportInput, signal: Signal, ai: AiReport, mode: Report
       course: input.session.course,
       duration_ms: signal.duration_ms,
     },
-    stats: { active_devices: active, total_taps: signal.total_taps, questions: input.questions.length },
+    stats: {
+      active_devices: active,
+      total_taps: signal.total_taps,
+      questions: input.questions.length,
+      tutor_questions: input.tutorQuestions?.length ?? 0,
+      tutor_students: new Set((input.tutorQuestions ?? []).map((q) => q.device_id)).size,
+    },
     timeline: signal.bins.map((b) => ({ start_ms: b.start_ms, rate: b.rate, devices: b.devices })),
     headline: ai.headline,
     concepts: ai.concepts.map((c) => ({

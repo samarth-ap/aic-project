@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import { api, deviceId } from "@/lib/client";
+import TutorChat, { type TutorTrigger } from "@/components/TutorChat";
 
 type Kind = "lost" | "too_fast" | "example" | "got_it";
 const LABELS: Record<Kind, string> = { lost: "I'm lost", too_fast: "Too fast", example: "Example please", got_it: "Got it" };
@@ -24,6 +25,8 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
   const [count, setCount] = useState(0);
   const [q, setQ] = useState("");
   const [showQ, setShowQ] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [trigger, setTrigger] = useState<TutorTrigger>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const heartbeat = useCallback(async () => {
@@ -56,7 +59,14 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
       const r = await api<{ cooldownMs: number }>(`/api/sessions/${code}/tap`, { body: { deviceId: deviceId(), kind } });
       setCoolUntil(Date.now() + r.cooldownMs);
       if (kind !== "got_it") setCount((c) => c + 1);
-      flash(kind === "got_it" ? "Nice 👍" : "Bookmarked — your catch-up card will cover this.");
+      if (kind === "lost" || kind === "example") {
+        // Open the AI tutor with an automatic "what just happened?" prompt.
+        setChatOpen(true);
+        setTrigger({ kind, nonce: Date.now() });
+        flash("Bookmarked. Asking the AI tutor…");
+      } else {
+        flash(kind === "got_it" ? "Nice 👍" : "Bookmarked — your catch-up card will cover this.");
+      }
     } catch (e) {
       const err = e as Error & { status?: number; data?: { cooldownMs?: number } };
       if (err.status === 429) setCoolUntil(Date.now() + (err.data?.cooldownMs ?? 3000));
@@ -96,6 +106,7 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
         <h1>{info.title} has ended</h1>
         <p className="muted">Your catch-up cards appear once the professor runs the analysis.</p>
         <Link className="btn" href={`/s/${code}/catchup`}>See my catch-up cards</Link>
+        <TutorChat code={code} live={false} />
       </main>
     );
   }
@@ -124,6 +135,12 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
       </div>
       <div className="toast" aria-live="polite">{toast}</div>
 
+      {chatOpen ? (
+        <TutorChat code={code} live trigger={trigger} onClose={() => setChatOpen(false)} />
+      ) : (
+        <button className="btn" onClick={() => setChatOpen(true)}>Ask the AI tutor</button>
+      )}
+
       {showQ ? (
         <form className="card stack" onSubmit={ask}>
           <textarea rows={3} maxLength={280} autoFocus placeholder="Ask anonymously…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -133,7 +150,7 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
           </div>
         </form>
       ) : (
-        <button className="btn ghost" onClick={() => setShowQ(true)}>Ask a question anonymously</button>
+        <button className="btn ghost" onClick={() => setShowQ(true)}>Ask the professor anonymously</button>
       )}
 
       <p className="small muted" style={{ textAlign: "center" }}>

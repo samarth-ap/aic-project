@@ -151,3 +151,16 @@ blockquote {
 .moment { border-left: 4px solid var(--lost); }
 .topic-bar { height: 8px; border-radius: 4px; background: var(--lost); }
 details summary { cursor: pointer; font-weight: 600; }
+
+/* AI tutor chat */
+.chat-log { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; max-height: 55vh; overflow-y: auto; }
+.bubble { padding: 10px 12px; border-radius: 14px; max-width: 88%; white-space: pre-wrap; line-height: 1.45; font-size: 0.95rem; }
+.bubble.me { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 4px; }
+.bubble.ai { align-self: flex-start; background: var(--surface-2); color: var(--text); border-bottom-left-radius: 4px; }
+.chat-chip { align-self: flex-end; font-size: 0.8rem; font-weight: 600; color: var(--lost); background: var(--lost-soft); padding: 4px 10px; border-radius: 999px; }
+.typing { letter-spacing: 2px; color: var(--muted); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .typing { animation: none; } }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { flex: 1; min-width: 0; }
+.link-btn { background: none; border: none; color: var(--muted); cursor: pointer; font: inherit; padding: 4px; }
