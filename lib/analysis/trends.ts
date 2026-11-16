@@ -3,7 +3,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import { hasClaudeCredentials, MODEL, type Report } from "./report";
+import { hasAiCredentials, MODEL, type Report } from "./report";
+import { aiProvider, groqJson } from "./llm";
 
 export interface Trend {
   topic: string;
@@ -27,25 +28,30 @@ export async function courseTrends(reports: { report: Report; started_at: number
   if (!refs.length) return [];
 
   let groups: { topic: string; concept_refs: string[] }[] | null = null;
-  if (hasClaudeCredentials() && reports.some((r) => r.report.mode === "ai")) {
+  if (hasAiCredentials() && reports.some((r) => r.report.mode === "ai")) {
+    const prompt = `These are concepts taught across a quarter of lectures. Group them into 4-12 course topics. Every ref must appear in exactly one topic.\n\n${refs
+      .map((r) => `${r.ref}: ${r.concept.name} — ${r.concept.summary}`)
+      .join("\n")}`;
     try {
-      const client = new Anthropic();
-      const response = await client.beta.messages.parse({
-        model: MODEL,
-        max_tokens: 8000,
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
-        output_config: { effort: "low", format: betaZodOutputFormat(Grouping) },
-        messages: [
-          {
-            role: "user",
-            content: `These are concepts taught across a quarter of lectures. Group them into 4-12 course topics. Every ref must appear in exactly one topic.\n\n${refs
-              .map((r) => `${r.ref}: ${r.concept.name} — ${r.concept.summary}`)
-              .join("\n")}`,
-          },
-        ],
-      });
-      if (response.stop_reason !== "refusal" && response.parsed_output) groups = response.parsed_output.topics;
+      if (aiProvider() === "groq") {
+        groups = (await groqJson({ schema: Grouping, name: "course_topics", user: prompt, maxTokens: 8000, effort: "low" })).topics;
+      } else {
+        const client = new Anthropic();
+        const response = await client.beta.messages.parse({
+          model: MODEL,
+          max_tokens: 8000,
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+          output_config: { effort: "low", format: betaZodOutputFormat(Grouping) },
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        });
+        if (response.stop_reason !== "refusal" && response.parsed_output) groups = response.parsed_output.topics;
+      }
     } catch {
       groups = null;
     }

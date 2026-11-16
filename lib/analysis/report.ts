@@ -8,6 +8,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { computeSignal, DEFAULT_CONFIG, type RawTap, type Signal } from "./signal";
 import { fmt, stampedTranscript, textBetween, type Seg } from "./transcript";
+import { aiProvider, groqJson } from "./llm";
 
 export const MODEL = process.env.CLAUDE_MODEL ?? "claude-opus-5-5";
 
@@ -119,10 +120,12 @@ export interface ReportInput {
   joinedDevices: number;
 }
 
-export function hasClaudeCredentials() {
-  if (process.env.USE_LLM === "0") return false;
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE);
+/** True when an AI provider (Claude or Groq) is configured. See lib/analysis/llm.ts. */
+export function hasAiCredentials() {
+  return aiProvider() !== null;
 }
+/** @deprecated use hasAiCredentials (kept so older imports still work) */
+export const hasClaudeCredentials = hasAiCredentials;
 
 export async function buildReport(input: ReportInput): Promise<Report> {
   const lastEvent = Math.max(
@@ -140,14 +143,14 @@ export async function buildReport(input: ReportInput): Promise<Report> {
   let warning: string | undefined;
   if (!input.transcript.length) {
     warning = "No transcript yet — add one (live captions or a .vtt/.srt upload) to get concept-level analysis.";
-  } else if (hasClaudeCredentials()) {
+  } else if (hasAiCredentials()) {
     try {
-      ai = await analyzeWithClaude(input, signal);
+      ai = await analyzeWithAI(input, signal);
     } catch (err) {
       warning = `AI analysis failed, showing offline report: ${(err as Error).message}`;
     }
   } else {
-    warning = "Offline mode: set ANTHROPIC_API_KEY to get AI concept mapping, root causes and catch-up cards.";
+    warning = "Offline mode: set ANTHROPIC_API_KEY or GROQ_API_KEY to get AI concept mapping, root causes and catch-up cards.";
   }
 
   return assemble(input, signal, ai ?? offlineReport(input, signal), ai ? "ai" : "offline", warning);
@@ -164,8 +167,7 @@ How the signal works:
 
 Write for a busy professor: specific, kind, actionable, no generic teaching advice. Never speculate about individual students. Catch-up cards are read by students on their phones right after lecture: warm, concrete, and grounded in what the professor actually said.`;
 
-async function analyzeWithClaude(input: ReportInput, signal: Signal): Promise<AiReport> {
-  const client = new Anthropic();
+async function analyzeWithAI(input: ReportInput, signal: Signal): Promise<AiReport> {
   const moments = signal.moments
     .map(
       (m) =>
@@ -199,13 +201,19 @@ Split the lecture into concepts, then analyze every confusion moment (one entry 
 
 Questions to the AI tutor came from private chats: they are the most honest signal of what students didn't understand, so use them when explaining moments and when clustering. Cluster both sources together and set each cluster's source. Never quote an AI-tutor question verbatim; paraphrase, and drop any cluster that would identify one student (names, personal details).`;
 
+  const effort = (process.env.CLAUDE_EFFORT as "low" | "medium" | "high") ?? "medium";
+  if (aiProvider() === "groq") {
+    return groqJson({ schema: AiReport, name: "lecture_report", system: SYSTEM, user, maxTokens: 16000, effort });
+  }
+
+  const client = new Anthropic();
   const response = await client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     output_config: {
-      effort: (process.env.CLAUDE_EFFORT as "low" | "medium" | "high") ?? "medium",
+      effort,
       format: betaZodOutputFormat(AiReport),
     },
     system: SYSTEM,

@@ -3,7 +3,8 @@
 import { addQuestion, addTap, addTranscript, createSession, endSession, touchPresence } from "../lib/db";
 import { analyzeSession } from "../lib/pipeline";
 import { getSessionById } from "../lib/db";
-import { hasClaudeCredentials } from "../lib/analysis/report";
+import { hasAiCredentials } from "../lib/analysis/report";
+import { aiProvider } from "../lib/analysis/llm";
 import { COURSE, LECTURES } from "./data/lectures";
 
 // Deterministic pseudo-random so demo data is stable between runs.
@@ -11,7 +12,7 @@ let seed = 42;
 const rand = () => ((seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32);
 
 async function main() {
-  console.log(`AI analysis: ${hasClaudeCredentials() ? "ON" : "OFF (set ANTHROPIC_API_KEY for full reports)"}`);
+  console.log(`AI analysis: ${hasAiCredentials() ? `ON (${aiProvider()})` : "OFF (set ANTHROPIC_API_KEY or GROQ_API_KEY for full reports)"}`);
   for (const L of LECTURES) {
     const lastLine = L.lines[L.lines.length - 1][0];
     const durationMs = (lastLine + 30) * 1000;

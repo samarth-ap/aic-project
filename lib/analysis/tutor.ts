@@ -3,7 +3,8 @@
 // the tap, and the student's thread, and explains what the professor just said.
 import Anthropic from "@anthropic-ai/sdk";
 import { fmt, stampedTranscript, textBetween, type Seg } from "./transcript";
-import { hasClaudeCredentials } from "./report";
+import { hasAiCredentials } from "./report";
+import { aiProvider, GroqError, groqStream } from "./llm";
 import type { ChatKind, ChatMessage } from "../db";
 
 // Fast model for live replies; the after-class report keeps using Opus.
@@ -43,14 +44,32 @@ export function tapPrompt(kind: Exclude<ChatKind, "text">, tMs: number): string 
     : `[Tapped "I'm lost" at ${fmt(tMs)}] I'm lost. What just happened?`;
 }
 
-function contextBlock(input: TutorInput): string {
+/**
+ * Groq's free tier has a small tokens-per-minute budget, so for Groq the tutor
+ * only sees the parts of the transcript near when this student asked or tapped
+ * (12 min before each, 2 min after), not the whole lecture.
+ */
+const GROQ_WINDOW_BEFORE_MS = Number(process.env.GROQ_TUTOR_WINDOW_MIN ?? 12) * 60_000;
+export function trimForGroq(heard: Seg[], input: TutorInput): { segs: Seg[]; trimmed: boolean } {
+  const anchors = [input.nowMs, ...input.history.filter((m) => m.role === "user").map((m) => m.t_ms)];
+  const keep = heard.filter((s) => anchors.some((t) => s.end_ms >= t - GROQ_WINDOW_BEFORE_MS && s.start_ms <= t + 2 * 60_000));
+  return { segs: keep, trimmed: keep.length < heard.length };
+}
+
+function contextBlock(input: TutorInput, provider: "anthropic" | "groq"): string {
   const { session, nowMs, transcript } = input;
-  const heard = transcript.filter((s) => s.start_ms <= nowMs);
+  let heard = transcript.filter((s) => s.start_ms <= nowMs);
+  let note = "";
+  if (provider === "groq") {
+    const t = trimForGroq(heard, input);
+    heard = t.segs;
+    if (t.trimmed) note = "(Only the parts of the lecture near the student's questions are included; other parts are omitted.)\n";
+  }
   return `Lecture: "${session.title}"${session.course ? ` (${session.course})` : ""}
 Status: ${session.ended ? "ENDED" : "LIVE"} · current lecture time ${fmt(nowMs)}
 
 <transcript>
-${heard.length ? stampedTranscript(heard) : "(no transcript yet: live captions are off or haven't started)"}
+${note}${heard.length ? stampedTranscript(heard) : "(no transcript yet: live captions are off or haven't started)"}
 </transcript>`;
 }
 
@@ -59,8 +78,12 @@ ${heard.length ? stampedTranscript(heard) : "(no transcript yet: live captions a
  * Without an API key, yields a non-AI fallback built from the transcript.
  */
 export async function* tutorReply(input: TutorInput): AsyncGenerator<string> {
-  if (!hasClaudeCredentials()) {
+  if (!hasAiCredentials()) {
     yield offlineReply(input);
+    return;
+  }
+  if (aiProvider() === "groq") {
+    yield* groqTutorReply(input);
     return;
   }
   const client = new Anthropic();
@@ -75,7 +98,7 @@ export async function* tutorReply(input: TutorInput): AsyncGenerator<string> {
     cache_control: { type: "ephemeral" },
     system: [
       { type: "text", text: SYSTEM },
-      { type: "text", text: contextBlock(input) },
+      { type: "text", text: contextBlock(input, "anthropic") },
     ],
     messages,
   });
@@ -88,10 +111,28 @@ export async function* tutorReply(input: TutorInput): AsyncGenerator<string> {
   if (final.stop_reason === "max_tokens") yield "…";
 }
 
+async function* groqTutorReply(input: TutorInput): AsyncGenerator<string> {
+  try {
+    yield* groqStream({
+      system: `${SYSTEM}\n\n${contextBlock(input, "groq")}`,
+      messages: input.history.map((m) => ({ role: m.role, content: m.content })),
+      maxTokens: 4000,
+      effort: CHAT_EFFORT,
+    });
+  } catch (err) {
+    // Free-tier rate limit: tell the student instead of showing a generic error.
+    if (err instanceof GroqError && err.status === 429) {
+      yield "Lots of students are asking right now, so the AI tutor is busy. Try again in a few seconds.";
+      return;
+    }
+    throw err;
+  }
+}
+
 function offlineReply(input: TutorInput): string {
   const last = [...input.history].reverse().find((m) => m.role === "user");
   const recent = textBetween(input.transcript, input.nowMs - RECENT_MS, input.nowMs).trim();
-  const head = "AI tutor is off (no ANTHROPIC_API_KEY on the server), so I can't explain yet.";
+  const head = "AI tutor is off (no AI key on the server), so I can't explain yet.";
   if (last?.kind !== "text" && recent) {
     return `${head} Here's what was said in the last few minutes:\n\n“${recent.split(" ").slice(-90).join(" ")}”`;
   }

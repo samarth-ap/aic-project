@@ -149,13 +149,21 @@ Vercel's filesystem is wiped between requests, so it needs Postgres.
 
 1. **Import the repo**: vercel.com → *Add New → Project* → pick this GitHub repo. Framework is detected as Next.js; keep the defaults.
 2. **Add a database**: in the project, *Storage → Create Database → Neon* (free tier) and connect it to the project. This sets `DATABASE_URL` for you. (Supabase works too: paste its *connection pooler* URL as `DATABASE_URL`.)
-3. **Add your key**: *Settings → Environment Variables* → `ANTHROPIC_API_KEY`. Optional: `MIN_DEVICES`, `CHAT_MODEL`, etc. from `.env.example`. Don't set `PUBLIC_URL`; the QR code uses the deployed URL automatically.
+3. **Add an AI key**: *Settings → Environment Variables* → `ANTHROPIC_API_KEY` (Claude), **or** `GROQ_API_KEY` for Groq's free tier (see below). Optional: `MIN_DEVICES`, `CHAT_MODEL`, etc. from `.env.example`. Don't set `PUBLIC_URL`; the QR code uses the deployed URL automatically.
 4. **Redeploy** (*Deployments → ⋯ → Redeploy*) so the new env vars are picked up.
 5. **Optional demo data** in the hosted database, from your laptop:
    ```bash
    DATABASE_URL="<the Neon URL from Vercel>" ANTHROPIC_API_KEY=sk-... npm run seed
    ```
    Then open `https://<your-app>.vercel.app/prof/CODE/report#k=KEY` with the links it prints.
+
+### Using Groq instead of Claude (free tier)
+
+Set `GROQ_API_KEY` (from https://console.groq.com) instead of `ANTHROPIC_API_KEY`. The tutor uses `openai/gpt-oss-20b` and reports use `openai/gpt-oss-120b`; change them with `GROQ_CHAT_MODEL` / `GROQ_MODEL`. Code: `lib/analysis/llm.ts`.
+
+- Free-tier limits are per account, so when a whole class taps at once some tutor replies may say "the AI tutor is busy, try again". To stay under the limit, the tutor only sees ~12 minutes of transcript before each question (`GROQ_TUTOR_WINDOW_MIN`).
+- If a report request is rate-limited or too long, the app shows the offline report with a warning; click analyze again a minute later.
+- Reports from open models are usually less polished than Claude's. Try it on a recorded lecture before demo day.
 
 Live captions need the microphone, which browsers allow on https, so the professor view works directly on the Vercel URL. Phones just scan the QR code; no tunnel or same-Wi-Fi needed.
 
