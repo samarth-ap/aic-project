@@ -1,5 +1,5 @@
 import { getReport } from "@/lib/db";
-import { error, json, sessionFrom, validDeviceId } from "@/lib/api";
+import { error, json, lectureActor, sessionFrom } from "@/lib/api";
 import { hashDevice, type Report } from "@/lib/analysis/report";
 
 // GET /api/sessions/:code/catchup?deviceId=...
@@ -9,11 +9,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   const s = await sessionFrom(params);
   if (!s) return error("Not found", 404);
   const deviceId = new URL(req.url).searchParams.get("deviceId");
-  if (!validDeviceId(deviceId)) return error("bad deviceId");
+  const who = await lectureActor(req, s, deviceId);
+  if (who instanceof Response) return who;
   const r = await getReport<Report>(s.id);
   if (!r) return json({ ready: false });
 
-  const me = hashDevice(deviceId);
+  const me = hashDevice(who.actor);
   const card = (m: Report["moments"][number]) => ({
     id: m.id,
     concept: m.concept_name,

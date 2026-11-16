@@ -136,6 +136,36 @@ Rehearse with `npm run simulate`. Have a seeded report ready in another tab in c
 
 **Phones need to reach your laptop.** Either deploy (see below) or run a tunnel such as `cloudflared tunnel --url http://localhost:3000` and set `PUBLIC_URL` to the tunnel URL so the QR code points there.
 
+## Accounts, classes and roles
+
+- **Sign-in:** Google, limited to UW accounts (NetID@uw.edu). People stay signed in for 60 days.
+- **Classes:** anyone signed in can create a class and becomes its **instructor**. A class has a **class code** (students join with it) and a **staff code** (TAs join with it; only the instructor sees it). Students who join a lecture of a class while signed in are added to it automatically.
+- **Lectures** are started from the class page and grouped under the class. The old one-off lectures (no account, `#k=` link) still work for quick demos.
+- **Guests:** by default students can tap without signing in. The instructor can tick *Require UW sign-in* on the class page.
+
+| | Instructor | TA | Student |
+|---|---|---|---|
+| Start/end lectures, console, summaries, topics across lectures | ✓ | ✓ | |
+| Roster (names + emails) | ✓ | ✓ | |
+| Who tapped / what anyone asked the tutor | ✗ | ✗ | only their own |
+| Class settings, staff code | ✓ | | |
+| Own dashboard: lectures, how lost, chat history, study plan | | | ✓ |
+
+Privacy: taps and chats from signed-in students are stored under an internal id (`user-000123`) so their dashboard works across devices. Staff-facing APIs only return class-wide numbers and the roster; reports store hashed ids only.
+
+**Code:** `lib/auth.ts` (sign-in, permissions), `lib/classes.ts` (class and student views), `lib/analysis/study.ts` (study plan), `app/dashboard`, `app/c/[code]`, `app/login`.
+
+### UW sign-in (Google OAuth) setup — free, ~10 minutes
+
+1. Go to https://console.cloud.google.com → create a project (e.g. "Lost and Found").
+2. **APIs & Services → OAuth consent screen**: user type **External**, app name, your email. Add scopes `openid`, `email`, `profile`. While the app is in *Testing*, add your team's @uw.edu emails as test users; click **Publish app** before demo day so any UW student can sign in (these basic scopes don't need Google review).
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID** → *Web application*. Authorized redirect URIs:
+   - `https://<your-app>.vercel.app/api/auth/callback/google`
+   - `http://localhost:3000/api/auth/callback/google` (for local dev)
+4. Copy the client ID and secret into Vercel → Settings → Environment Variables as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then redeploy.
+
+Real UW NetID SSO (Shibboleth) needs UW-IT to register the app; Google sign-in with `@uw.edu` gives the same identity without that wait.
+
 ## Deploying
 
 `lib/db.ts` has two backends with the same SQL:

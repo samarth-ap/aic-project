@@ -1,7 +1,9 @@
 "use client";
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
-import { api, deviceId, fmt, pct } from "@/lib/client";
+import { api, deviceId, fmt, pct, useMe } from "@/lib/client";
+import TopBar from "@/components/TopBar";
+import TutorChat from "@/components/TutorChat";
 
 interface Card {
   id: string;
@@ -43,6 +45,7 @@ function CatchUpCard({ c }: { c: Card }) {
 export default function CatchUp({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   const [data, setData] = useState<Data | null>(null);
+  const { me } = useMe();
 
   useEffect(() => {
     const load = () => api<Data>(`/api/sessions/${code}/catchup?deviceId=${deviceId()}`).then(setData).catch(() => setData({ ready: false }));
@@ -53,7 +56,7 @@ export default function CatchUp({ params }: { params: Promise<{ code: string }> 
 
   return (
     <main className="wrap narrow stack">
-      <Link className="brand" href="/">Lost <span>&amp;</span> Found</Link>
+      <TopBar me={me} />
       {!data ? (
         <p className="muted">Loading…</p>
       ) : !data.ready ? (
@@ -76,6 +79,16 @@ export default function CatchUp({ params }: { params: Promise<{ code: string }> 
             </>
           )}
         </>
+      )}
+
+      {/* Chat history for this lecture; after class the tutor can go deeper. */}
+      <h2 style={{ marginTop: 24 }}>Your AI tutor chat</h2>
+      <TutorChat code={code} live={false} />
+      {me && !me.user && (
+        <p className="small muted">
+          <Link href={`/login?next=${encodeURIComponent(`/s/${code}/catchup`)}`}>Sign in</Link> to keep your chats and catch-up
+          cards across lectures and devices.
+        </p>
       )}
     </main>
   );

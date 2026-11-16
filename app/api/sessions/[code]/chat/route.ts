@@ -1,5 +1,5 @@
 import { addChatMessage, getChat, getTranscript, recentChatCount, type ChatKind } from "@/lib/db";
-import { error, json, sessionFrom, validDeviceId } from "@/lib/api";
+import { error, json, lectureActor, sessionFrom } from "@/lib/api";
 import { tapPrompt, tutorReply } from "@/lib/analysis/tutor";
 
 const MAX_LEN = 1000;
@@ -13,9 +13,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   const s = await sessionFrom(params);
   if (!s) return error("No lecture with that code", 404);
   const deviceId = new URL(req.url).searchParams.get("deviceId");
-  if (!validDeviceId(deviceId)) return error("bad deviceId");
+  const who = await lectureActor(req, s, deviceId);
+  if (who instanceof Response) return who;
   return json({
-    messages: (await getChat(s.id, deviceId)).map(({ role, kind, t_ms, content }) => ({ role, kind, t_ms, content })),
+    messages: (await getChat(s.id, who.actor)).map(({ role, kind, t_ms, content }) => ({ role, kind, t_ms, content })),
   });
 }
 
@@ -26,7 +27,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   if (!s) return error("No lecture with that code", 404);
   const body = await req.json().catch(() => ({}));
   const { deviceId, text, tap } = body as { deviceId?: unknown; text?: unknown; tap?: unknown };
-  if (!validDeviceId(deviceId)) return error("bad deviceId");
+  const who = await lectureActor(req, s, deviceId);
+  if (who instanceof Response) return who;
+  const actor = who.actor;
 
   let kind: ChatKind;
   if (tap === "lost" || tap === "example") kind = tap;
@@ -34,19 +37,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   else return error("Send text or a tap");
   if (kind === "text" && (text as string).length > MAX_LEN) return error(`Keep it under ${MAX_LEN} characters`);
 
-  if (await recentChatCount(s.id, deviceId, Date.now() - 60_000) >= PER_MINUTE) {
+  if (await recentChatCount(s.id, actor, Date.now() - 60_000) >= PER_MINUTE) {
     return error("You're sending messages quickly. Wait a few seconds and try again.", 429);
   }
 
   const now = lectureTime(s);
   const content = kind === "text" ? (text as string).trim() : tapPrompt(kind, now);
-  await addChatMessage(s.id, deviceId, "user", kind, now, content);
+  await addChatMessage(s.id, actor, "user", kind, now, content);
 
   const reply = tutorReply({
     session: { title: s.title, course: s.course, ended: Boolean(s.ended_at) },
     nowMs: now,
     transcript: await getTranscript(s.id),
-    history: await getChat(s.id, deviceId),
+    history: await getChat(s.id, actor),
   });
 
   const encoder = new TextEncoder();
@@ -63,7 +66,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
         // Shown to the student but not saved, so it doesn't end up in the tutor's history.
         controller.enqueue(encoder.encode(`${full ? "\n\n" : ""}Sorry, the AI tutor hit an error. Try again in a moment.`));
       }
-      if (full.trim()) await addChatMessage(s.id, deviceId, "assistant", "text", now, full);
+      if (full.trim()) await addChatMessage(s.id, actor, "assistant", "text", now, full);
       controller.close();
     },
   });

@@ -6,7 +6,7 @@ import { adminKey as readKey, api, fmt, pct } from "@/lib/client";
 import { Timeline } from "@/components/Timeline";
 import { LiveCaptions } from "@/components/LiveCaptions";
 
-interface Info { code: string; title: string; course: string; started_at: number; ended_at: number | null }
+interface Info { code: string; title: string; course: string; started_at: number; ended_at: number | null; class_code?: string | null }
 interface Live {
   now_ms: number;
   students: number;
@@ -28,6 +28,7 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [origin, setOrigin] = useState("");
+  const [denied, setDenied] = useState(false);
 
   useEffect(() => {
     setKey(readKey(code));
@@ -35,9 +36,16 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
     api<Info>(`/api/sessions/${code}`).then(setInfo).catch((e) => setMsg(e.message));
   }, [code]);
 
+  // Works with the lecture's key link OR by being signed in as the class's instructor/TA.
   const poll = useCallback(async () => {
-    if (!key) return;
-    try { setLive(await api<Live>(`/api/sessions/${code}/live`, { key })); } catch (e) { setMsg((e as Error).message); }
+    try {
+      setLive(await api<Live>(`/api/sessions/${code}/live`, { key }));
+      setDenied(false);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      if (err.status === 403) setDenied(true);
+      else setMsg(err.message);
+    }
   }, [code, key]);
 
   useEffect(() => {
@@ -47,7 +55,6 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
   }, [poll]);
 
   async function endAndAnalyze() {
-    if (!key) return;
     setBusy("Ending lecture…");
     try {
       if (!info?.ended_at) await api(`/api/sessions/${code}/end`, { body: {}, key });
@@ -62,7 +69,6 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
   }
 
   async function upload(file: File) {
-    if (!key) return;
     const captions = await file.text();
     try {
       const r = await api<{ segments: number }>(`/api/sessions/${code}/transcript`, { body: { captions }, key });
@@ -72,11 +78,14 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
     }
   }
 
-  if (key === null && info) {
+  if (denied && info) {
     return (
       <main className="wrap narrow stack">
-        <h1>Professor key needed</h1>
-        <p className="muted">Open this page from the browser where you started the lecture, or use the link with <code>#k=…</code>.</p>
+        <h1>Instructors only</h1>
+        <p className="muted">
+          Sign in with the UW account that teaches this class, or open the lecture&apos;s professor link (the one with <code>#k=…</code>).
+        </p>
+        <Link className="btn" href={`/login?next=${encodeURIComponent(`/prof/${code}`)}`}>Sign in</Link>
       </main>
     );
   }
@@ -87,7 +96,10 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
     <main className="wrap stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <Link className="brand" href="/">Lost <span>&amp;</span> Found</Link>
-        <span className="small muted">Professor console · only you can see this</span>
+        <div className="row small">
+          {info.class_code && <Link href={`/c/${info.class_code}`}>← Class</Link>}
+          <span className="muted">Professor console · only staff can see this</span>
+        </div>
       </div>
       <div>
         <div className="small muted">{info.course}</div>
@@ -101,8 +113,9 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
       )}
       {msg && <div className="banner">{msg}</div>}
 
-      <div className="grid2">
-        <section className="card row" style={{ alignItems: "center", gap: 20 }}>
+      {/* Phone: stacked. Tablet/desktop/projector: big QR on the left, live stats + chart on the right. */}
+      <div className="console-grid">
+        <section className="card join-card">
           {origin && <img className="qr" src={`/api/sessions/${code}/qr?origin=${encodeURIComponent(origin)}`} alt={`QR code for ${joinUrl}`} />}
           <div className="stack" style={{ minWidth: 0 }}>
             <div className="stat-label">Students join at</div>
@@ -110,29 +123,31 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
             <div className="code-big mono">{code}</div>
           </div>
         </section>
-        <section className="card">
-          <div className="row" style={{ gap: 28 }}>
-            <div><div className="stat">{live?.students ?? 0}</div><div className="stat-label">joined</div></div>
-            <div><div className="stat">{live?.total_taps ?? 0}</div><div className="stat-label">taps</div></div>
-            <div><div className="stat">{live?.questions ?? 0}</div><div className="stat-label">questions</div></div>
-            <div><div className="stat mono">{fmt(live?.now_ms ?? 0)}</div><div className="stat-label">elapsed</div></div>
-          </div>
-        </section>
+        <div className="stack console-main">
+          <section className="card stats-card">
+            <div className="stats">
+              <div><div className="stat">{live?.students ?? 0}</div><div className="stat-label">joined</div></div>
+              <div><div className="stat">{live?.total_taps ?? 0}</div><div className="stat-label">taps</div></div>
+              <div><div className="stat">{live?.questions ?? 0}</div><div className="stat-label">questions</div></div>
+              <div><div className="stat mono">{fmt(live?.now_ms ?? 0)}</div><div className="stat-label">elapsed</div></div>
+            </div>
+          </section>
+
+          <section className="card stack">
+            <h2>Confusion, live</h2>
+            {live ? (
+              <Timeline bins={live.bins} binMs={15_000} durationMs={live.now_ms} />
+            ) : (
+              <p className="muted">Waiting for taps…</p>
+            )}
+            <p className="small muted">Bars show the share of students who tapped in each 15-second window. Orange means 15% or more.</p>
+          </section>
+        </div>
       </div>
 
       <section className="card stack">
-        <h2>Confusion, live</h2>
-        {live ? (
-          <Timeline bins={live.bins} binMs={15_000} durationMs={live.now_ms} />
-        ) : (
-          <p className="muted">Waiting for taps…</p>
-        )}
-        <p className="small muted">Bars show the share of students who tapped in each 15-second window. Orange means 15% or more.</p>
-      </section>
-
-      <section className="card stack">
         <h2>Transcript</h2>
-        {key && <LiveCaptions code={code} adminKey={key} disabled={!!info.ended_at} />}
+        <LiveCaptions code={code} adminKey={key} disabled={!!info.ended_at} />
         <div>
           <label htmlFor="cap">…or upload captions from the recording (.vtt / .srt, e.g. from Panopto or Zoom)</label>
           <input id="cap" type="file" accept=".vtt,.srt,text/vtt" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />

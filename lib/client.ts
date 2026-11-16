@@ -1,5 +1,6 @@
 "use client";
-// Browser-side helpers: anonymous device id + professor key storage.
+// Browser-side helpers: anonymous device id, professor key storage, signed-in user.
+import { useEffect, useState } from "react";
 
 function safeGet(k: string): string | null {
   try { return localStorage.getItem(k); } catch { return null; }
@@ -50,3 +51,38 @@ export const fmt = (ms: number) => {
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
 };
 export const pct = (x: number) => `${Math.round(x * 100)}%`;
+
+// ---------- signed-in user ----------
+
+export interface Me {
+  user: { name: string; email: string; picture: string } | null;
+  classes: { code: string; name: string; term: string; role: "instructor" | "ta" | "student"; staff_code?: string }[];
+  auth: { google: boolean; dev: boolean };
+}
+
+/** Loads /api/me. `me` is undefined while loading. */
+export function useMe(): { me: Me | undefined; reload: () => void } {
+  const [me, setMe] = useState<Me | undefined>(undefined);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let live = true;
+    api<Me>("/api/me")
+      .then((m) => live && setMe(m))
+      .catch(() => live && setMe({ user: null, classes: [], auth: { google: false, dev: false } }));
+    return () => {
+      live = false;
+    };
+  }, [n]);
+  return { me, reload: () => setN((x) => x + 1) };
+}
+
+export const loginHref = (next?: string) =>
+  `/login?next=${encodeURIComponent(next ?? (typeof window !== "undefined" ? window.location.pathname + window.location.search : "/dashboard"))}`;
+
+export async function logout() {
+  await api("/api/auth/logout", { method: "POST" });
+  window.location.href = "/";
+}
+
+export const fmtDate = (ms: number) =>
+  new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });

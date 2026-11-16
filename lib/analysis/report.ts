@@ -76,7 +76,16 @@ export interface Report {
   mode: "ai" | "offline";
   warning?: string;
   session: { code: string; title: string; course: string; duration_ms: number };
-  stats: { active_devices: number; total_taps: number; questions: number; tutor_questions: number; tutor_students: number };
+  stats: {
+    active_devices: number;
+    total_taps: number;
+    questions: number;
+    tutor_questions: number;
+    tutor_students: number;
+    /** Added later: older reports don't have these. */
+    lost_taps?: number;
+    lost_students?: number;
+  };
   timeline: { start_ms: number; rate: number; devices: number }[];
   headline: string;
   concepts: { id: string; name: string; start_ms: number; end_ms: number; summary: string; prerequisite_ids: string[]; confusion: number }[];
@@ -330,6 +339,8 @@ function assemble(input: ReportInput, signal: Signal, ai: AiReport, mode: Report
       questions: input.questions.length,
       tutor_questions: input.tutorQuestions?.length ?? 0,
       tutor_students: new Set((input.tutorQuestions ?? []).map((q) => q.device_id)).size,
+      lost_taps: input.taps.filter((t) => t.kind === "lost").length,
+      lost_students: new Set(input.taps.filter((t) => t.kind === "lost").map((t) => t.device_id)).size,
     },
     timeline: signal.bins.map((b) => ({ start_ms: b.start_ms, rate: b.rate, devices: b.devices })),
     headline: ai.headline,

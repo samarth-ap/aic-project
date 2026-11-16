@@ -21,7 +21,7 @@ interface Recognizer {
 }
 type RecognizerCtor = new () => Recognizer;
 
-export function LiveCaptions({ code, adminKey, disabled }: { code: string; adminKey: string; disabled?: boolean }) {
+export function LiveCaptions({ code, adminKey, disabled }: { code: string; adminKey: string | null; disabled?: boolean }) {
   const [on, setOn] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
   const [interim, setInterim] = useState("");

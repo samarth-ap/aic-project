@@ -1,12 +1,13 @@
 import { countPresence, getQuestions, getTaps } from "@/lib/db";
 import { computeSignal, DEFAULT_CONFIG } from "@/lib/analysis/signal";
-import { error, isAdmin, json, sessionFrom } from "@/lib/api";
+import { error, json, sessionFrom } from "@/lib/api";
+import { canManage } from "@/lib/auth";
 
 // GET /api/sessions/:code/live  (professor) -> live timeline for the console
 export async function GET(req: Request, { params }: { params: Promise<{ code: string }> }) {
   const s = await sessionFrom(params);
   if (!s) return error("Not found", 404);
-  if (!isAdmin(req, s)) return error("Professor key required", 403);
+  if (!(await canManage(req, s))) return error("Professor key required", 403);
 
   const now = (s.ended_at ?? Date.now()) - s.started_at;
   const taps = await getTaps(s.id);

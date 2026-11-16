@@ -9,7 +9,8 @@ export const metadata: Metadata = {
   title: "Lost & Found",
   description: "Anonymous 'I'm lost' signals, mapped to the lecture so professors know what to re-teach.",
 };
-export const viewport: Viewport = { width: "device-width", initialScale: 1, maximumScale: 1 };
+// No maximumScale: people must be able to pinch-zoom. Inputs are 16px so iOS doesn't auto-zoom on focus.
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

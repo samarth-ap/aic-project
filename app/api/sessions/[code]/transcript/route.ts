@@ -1,6 +1,7 @@
 import { addTranscript, clearTranscript, getTranscript } from "@/lib/db";
 import { parseCaptions } from "@/lib/analysis/transcript";
-import { error, isAdmin, json, sessionFrom } from "@/lib/api";
+import { error, json, sessionFrom } from "@/lib/api";
+import { canManage } from "@/lib/auth";
 
 // POST /api/sessions/:code/transcript  (professor)
 //   { text }                   -> one live-caption line; server stamps the time
@@ -8,7 +9,7 @@ import { error, isAdmin, json, sessionFrom } from "@/lib/api";
 export async function POST(req: Request, { params }: { params: Promise<{ code: string }> }) {
   const s = await sessionFrom(params);
   if (!s) return error("Not found", 404);
-  if (!isAdmin(req, s)) return error("Professor key required", 403);
+  if (!(await canManage(req, s))) return error("Professor key required", 403);
   const body = await req.json().catch(() => ({}));
 
   if (typeof body.captions === "string") {
@@ -32,6 +33,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
 export async function GET(req: Request, { params }: { params: Promise<{ code: string }> }) {
   const s = await sessionFrom(params);
   if (!s) return error("Not found", 404);
-  if (!isAdmin(req, s)) return error("Professor key required", 403);
+  if (!(await canManage(req, s))) return error("Professor key required", 403);
   return json((await getTranscript(s.id)).map(({ start_ms, end_ms, text }) => ({ start_ms, end_ms, text })));
 }

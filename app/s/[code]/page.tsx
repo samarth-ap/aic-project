@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { use, useCallback, useEffect, useRef, useState } from "react";
-import { api, deviceId } from "@/lib/client";
+import { api, deviceId, loginHref } from "@/lib/client";
 import TutorChat, { type TutorTrigger } from "@/components/TutorChat";
 
 type Kind = "lost" | "too_fast" | "example" | "got_it";
@@ -13,12 +13,16 @@ interface Info {
   course: string;
   ended_at: number | null;
   students?: number;
+  class_code?: string | null;
+  class_name?: string | null;
+  signed_in?: boolean;
 }
 
 export default function StudentPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   const [info, setInfo] = useState<Info | null>(null);
   const [err, setErr] = useState("");
+  const [needLogin, setNeedLogin] = useState(false);
   const [toast, setToast] = useState("");
   const [coolUntil, setCoolUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -33,7 +37,9 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
     try {
       setInfo(await api<Info>(`/api/sessions/${code}`, { body: { deviceId: deviceId() } }));
     } catch (e) {
-      setErr((e as Error).message);
+      const err = e as Error & { data?: { needLogin?: boolean } };
+      if (err.data?.needLogin) setNeedLogin(true);
+      else setErr(err.message);
     }
   }, [code]);
 
@@ -88,6 +94,18 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
     }
   }
 
+  if (needLogin) {
+    return (
+      <main className="wrap narrow stack">
+        <div className="brand">Lost <span>&amp;</span> Found</div>
+        <h1>Sign in to join</h1>
+        <p className="muted">
+          This class uses UW sign-in so you get your own history and study plan. Your professor still never sees who tapped.
+        </p>
+        <Link className="btn" href={loginHref(`/s/${code}`)}>Sign in with UW</Link>
+      </main>
+    );
+  }
   if (err) {
     return (
       <main className="wrap narrow stack">
@@ -106,6 +124,7 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
         <h1>{info.title} has ended</h1>
         <p className="muted">Your catch-up cards appear once the professor runs the analysis.</p>
         <Link className="btn" href={`/s/${code}/catchup`}>See my catch-up cards</Link>
+        {info.signed_in && <Link className="btn ghost" href="/dashboard">My dashboard</Link>}
         <TutorChat code={code} live={false} />
       </main>
     );
@@ -116,10 +135,10 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
     <main className="wrap narrow stack" style={{ paddingTop: 16 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <div className="brand">Lost <span>&amp;</span> Found</div>
-        <span className="pill">{info.students ?? 1} in class · anonymous</span>
+        <span className="pill">{info.students ?? 1} in class · {info.signed_in ? "private" : "anonymous"}</span>
       </div>
       <div>
-        <div className="small muted">{info.course}</div>
+        <div className="small muted">{info.class_name ?? info.course}</div>
         <h2 style={{ marginBottom: 0 }}>{info.title}</h2>
       </div>
 
@@ -154,7 +173,13 @@ export default function StudentPage({ params }: { params: Promise<{ code: string
       )}
 
       <p className="small muted" style={{ textAlign: "center" }}>
-        {count > 0 ? `${count} moment${count > 1 ? "s" : ""} bookmarked. ` : ""}Your taps are never linked to your name.
+        {count > 0 ? `${count} moment${count > 1 ? "s" : ""} bookmarked. ` : ""}Your professor never sees who tapped.
+        {info.signed_in === false && (
+          <>
+            {" "}
+            <Link href={loginHref(`/s/${code}`)}>Sign in</Link> to save this lecture to your dashboard.
+          </>
+        )}
       </p>
     </main>
   );
