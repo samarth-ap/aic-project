@@ -138,8 +138,26 @@ Rehearse with `npm run simulate`. Have a seeded report ready in another tab in c
 
 ## Deploying
 
-The app stores data in one SQLite file, so it needs a host with a persistent disk (Railway, Render, Fly.io, a VM): `npm run build && npm start`.
-Vercel's filesystem is temporary, so to use Vercel swap `lib/db.ts` for Postgres (e.g. Supabase). Every query goes through that one file.
+`lib/db.ts` has two backends with the same SQL:
+
+- **No `DATABASE_URL`** → SQLite file in `data/` (local dev, or any host with a persistent disk: `npm run build && npm start`).
+- **`DATABASE_URL` (or `POSTGRES_URL`) set** → Postgres. Tables are created automatically on first request.
+
+### Vercel
+
+Vercel's filesystem is wiped between requests, so it needs Postgres.
+
+1. **Import the repo**: vercel.com → *Add New → Project* → pick this GitHub repo. Framework is detected as Next.js; keep the defaults.
+2. **Add a database**: in the project, *Storage → Create Database → Neon* (free tier) and connect it to the project. This sets `DATABASE_URL` for you. (Supabase works too: paste its *connection pooler* URL as `DATABASE_URL`.)
+3. **Add your key**: *Settings → Environment Variables* → `ANTHROPIC_API_KEY`. Optional: `MIN_DEVICES`, `CHAT_MODEL`, etc. from `.env.example`. Don't set `PUBLIC_URL`; the QR code uses the deployed URL automatically.
+4. **Redeploy** (*Deployments → ⋯ → Redeploy*) so the new env vars are picked up.
+5. **Optional demo data** in the hosted database, from your laptop:
+   ```bash
+   DATABASE_URL="<the Neon URL from Vercel>" ANTHROPIC_API_KEY=sk-... npm run seed
+   ```
+   Then open `https://<your-app>.vercel.app/prof/CODE/report#k=KEY` with the links it prints.
+
+Live captions need the microphone, which browsers allow on https, so the professor view works directly on the Vercel URL. Phones just scan the QR code; no tunnel or same-Wi-Fi needed.
 
 ## 4-week plan to Demo Day
 

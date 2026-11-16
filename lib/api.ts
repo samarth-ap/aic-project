@@ -7,7 +7,7 @@ export const error = (message: string, status = 400) => NextResponse.json({ erro
 
 export async function sessionFrom(params: Promise<{ code: string }>): Promise<Session | null> {
   const { code } = await params;
-  return getSession(code) ?? null;
+  return await getSession(code) ?? null;
 }
 
 /** Professor-only routes need the session's admin key (header `x-admin-key` or `?k=`). */

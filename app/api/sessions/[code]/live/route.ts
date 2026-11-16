@@ -9,15 +9,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   if (!isAdmin(req, s)) return error("Professor key required", 403);
 
   const now = (s.ended_at ?? Date.now()) - s.started_at;
-  const taps = getTaps(s.id);
-  const joined = countPresence(s.id);
+  const taps = await getTaps(s.id);
+  const joined = await countPresence(s.id);
   // Live view uses raw time (no lag shift) so the prof sees taps as they land.
   const signal = computeSignal(taps, Math.max(now, 60_000), joined, { ...DEFAULT_CONFIG, lagMs: 0, binMs: 15_000 });
   const recentWindow = 60_000;
   const recentDevices = new Set(
     taps.filter((t) => t.kind !== "got_it" && t.t_ms >= now - recentWindow).map((t) => t.device_id),
   ).size;
-  const activeNow = Math.max(countPresence(s.id, now - 5 * 60_000), 1);
+  const activeNow = Math.max(await countPresence(s.id, now - 5 * 60_000), 1);
   return json({
     now_ms: now,
     students: joined,
@@ -26,7 +26,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
     lost_share_last_minute: recentDevices / activeNow,
     alert: recentDevices >= DEFAULT_CONFIG.minDevices && recentDevices / activeNow >= 0.15,
     total_taps: taps.length,
-    questions: getQuestions(s.id).length,
+    questions: (await getQuestions(s.id)).length,
     bins: signal.bins.map((b) => ({ start_ms: b.start_ms, devices: b.devices, rate: b.rate })),
   });
 }

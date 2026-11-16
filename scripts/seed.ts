@@ -16,11 +16,11 @@ async function main() {
     const lastLine = L.lines[L.lines.length - 1][0];
     const durationMs = (lastLine + 30) * 1000;
     const startedAt = Date.now() - L.daysAgo * 86_400_000 - durationMs;
-    const s = createSession(L.title, COURSE, startedAt);
+    const s = await createSession(L.title, COURSE, startedAt);
     const devices = Array.from({ length: L.students }, (_, i) => `demo-${s.code}-${String(i).padStart(3, "0")}`);
-    devices.forEach((d) => touchPresence(s.id, d, Math.floor(rand() * 60_000)));
+    for (const d of devices) await touchPresence(s.id, d, Math.floor(rand() * 60_000));
 
-    addTranscript(
+    await addTranscript(
       s.id,
       L.lines.map(([sec, text], i) => ({
         start_ms: sec * 1000,
@@ -31,32 +31,31 @@ async function main() {
 
     // Background noise: a few scattered taps.
     for (let i = 0; i < Math.round(L.students * 0.15); i++) {
-      addTap(s.id, devices[Math.floor(rand() * devices.length)], rand() < 0.7 ? "lost" : "too_fast", Math.floor(rand() * durationMs));
+      await addTap(s.id, devices[Math.floor(rand() * devices.length)], rand() < 0.7 ? "lost" : "too_fast", Math.floor(rand() * durationMs));
     }
     // "Got it" taps sprinkled around.
     for (let i = 0; i < Math.round(L.students * 0.2); i++) {
-      addTap(s.id, devices[Math.floor(rand() * devices.length)], "got_it", Math.floor(rand() * durationMs));
+      await addTap(s.id, devices[Math.floor(rand() * devices.length)], "got_it", Math.floor(rand() * durationMs));
     }
     // Spikes: distinct students tapping around `at`.
     for (const sp of L.spikes) {
       const pool = [...devices].sort(() => rand() - 0.5).slice(0, sp.students);
       const kinds = sp.kinds ?? ["lost"];
-      pool.forEach((d, i) =>
-        addTap(s.id, d, kinds[i % kinds.length], Math.round((sp.at + (rand() - 0.3) * sp.spread) * 1000)),
-      );
+      for (const [i, d] of pool.entries())
+        await addTap(s.id, d, kinds[i % kinds.length], Math.round((sp.at + (rand() - 0.3) * sp.spread) * 1000));
     }
-    L.questions.forEach(([sec, text], i) => addQuestion(s.id, devices[i * 3], sec * 1000, text));
-    endSession(s.id, startedAt + durationMs);
+    for (const [i, [sec, text]] of L.questions.entries()) await addQuestion(s.id, devices[i * 3], sec * 1000, text);
+    await endSession(s.id, startedAt + durationMs);
 
     process.stdout.write(`Analyzing "${L.title}"… `);
-    const r = await analyzeSession(getSessionById(s.id)!);
+    const r = await analyzeSession((await getSessionById(s.id))!);
     console.log(`${r.moments.length} moments (${r.mode})${r.warning ? ` — ${r.warning}` : ""}`);
     console.log(`  report:  /prof/${s.code}/report#k=${s.admin_key}`);
     console.log(`  student: /s/${s.code}/catchup`);
   }
 }
 
-main().catch((e) => {
+main().then(() => process.exit(0)).catch((e) => {
   console.error(e);
   process.exit(1);
 });

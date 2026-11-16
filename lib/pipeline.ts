@@ -5,12 +5,12 @@ import { buildReport, type Report } from "./analysis/report";
 export async function analyzeSession(s: Session): Promise<Report> {
   const report = await buildReport({
     session: s,
-    taps: getTaps(s.id),
-    questions: getQuestions(s.id),
-    tutorQuestions: getChatQuestions(s.id),
-    transcript: getTranscript(s.id),
-    joinedDevices: countPresence(s.id),
+    taps: await getTaps(s.id),
+    questions: await getQuestions(s.id),
+    tutorQuestions: await getChatQuestions(s.id),
+    transcript: await getTranscript(s.id),
+    joinedDevices: await countPresence(s.id),
   });
-  saveReport(s.id, report);
+  await saveReport(s.id, report);
   return report;
 }

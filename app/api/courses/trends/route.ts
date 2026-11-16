@@ -8,12 +8,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const course = url.searchParams.get("course") ?? "";
   const key = req.headers.get("x-admin-key") ?? url.searchParams.get("k");
-  const sessions = listSessions(course);
+  const sessions = await listSessions(course);
   if (!course || !sessions.length) return error("Unknown course", 404);
   if (!sessions.some((s) => s.admin_key === key)) return error("Professor key required", 403);
 
-  const reports = sessions
-    .map((s) => ({ report: getReport<Report>(s.id), started_at: s.started_at }))
+  const reports = (
+    await Promise.all(sessions.map(async (s) => ({ report: await getReport<Report>(s.id), started_at: s.started_at })))
+  )
     .filter((r): r is { report: Report; started_at: number } => r.report !== null);
   return json({
     course,

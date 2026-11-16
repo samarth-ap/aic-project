@@ -10,7 +10,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   if (!s) return error("Not found", 404);
   const deviceId = new URL(req.url).searchParams.get("deviceId");
   if (!validDeviceId(deviceId)) return error("bad deviceId");
-  const r = getReport<Report>(s.id);
+  const r = await getReport<Report>(s.id);
   if (!r) return json({ ready: false });
 
   const me = hashDevice(deviceId);

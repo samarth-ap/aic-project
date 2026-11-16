@@ -6,6 +6,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   const s = await sessionFrom(params);
   if (!s) return error("Not found", 404);
   if (!isAdmin(req, s)) return error("Professor key required", 403);
-  const r = getReport<Report>(s.id);
+  const r = await getReport<Report>(s.id);
   return r ? json(publicReport(r)) : error("Not analyzed yet", 404);
 }

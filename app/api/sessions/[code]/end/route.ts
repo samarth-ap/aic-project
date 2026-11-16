@@ -5,6 +5,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   const s = await sessionFrom(params);
   if (!s) return error("Not found", 404);
   if (!isAdmin(req, s)) return error("Professor key required", 403);
-  endSession(s.id);
+  await endSession(s.id);
   return json({ ok: true });
 }

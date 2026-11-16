@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   const deviceId = new URL(req.url).searchParams.get("deviceId");
   if (!validDeviceId(deviceId)) return error("bad deviceId");
   return json({
-    messages: getChat(s.id, deviceId).map(({ role, kind, t_ms, content }) => ({ role, kind, t_ms, content })),
+    messages: (await getChat(s.id, deviceId)).map(({ role, kind, t_ms, content }) => ({ role, kind, t_ms, content })),
   });
 }
 
@@ -34,19 +34,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   else return error("Send text or a tap");
   if (kind === "text" && (text as string).length > MAX_LEN) return error(`Keep it under ${MAX_LEN} characters`);
 
-  if (recentChatCount(s.id, deviceId, Date.now() - 60_000) >= PER_MINUTE) {
+  if (await recentChatCount(s.id, deviceId, Date.now() - 60_000) >= PER_MINUTE) {
     return error("You're sending messages quickly. Wait a few seconds and try again.", 429);
   }
 
   const now = lectureTime(s);
   const content = kind === "text" ? (text as string).trim() : tapPrompt(kind, now);
-  addChatMessage(s.id, deviceId, "user", kind, now, content);
+  await addChatMessage(s.id, deviceId, "user", kind, now, content);
 
   const reply = tutorReply({
     session: { title: s.title, course: s.course, ended: Boolean(s.ended_at) },
     nowMs: now,
-    transcript: getTranscript(s.id),
-    history: getChat(s.id, deviceId),
+    transcript: await getTranscript(s.id),
+    history: await getChat(s.id, deviceId),
   });
 
   const encoder = new TextEncoder();
@@ -63,7 +63,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
         // Shown to the student but not saved, so it doesn't end up in the tutor's history.
         controller.enqueue(encoder.encode(`${full ? "\n\n" : ""}Sorry, the AI tutor hit an error. Try again in a moment.`));
       }
-      if (full.trim()) addChatMessage(s.id, deviceId, "assistant", "text", now, full);
+      if (full.trim()) await addChatMessage(s.id, deviceId, "assistant", "text", now, full);
       controller.close();
     },
   });

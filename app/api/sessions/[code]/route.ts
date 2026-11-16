@@ -14,6 +14,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   if (!s) return error("No lecture with that code", 404);
   const { deviceId } = await req.json().catch(() => ({}));
   if (!validDeviceId(deviceId)) return error("bad deviceId");
-  if (!s.ended_at) touchPresence(s.id, deviceId, Date.now() - s.started_at);
-  return json({ ...publicSession(s), students: countPresence(s.id) });
+  if (!s.ended_at) await touchPresence(s.id, deviceId, Date.now() - s.started_at);
+  return json({ ...publicSession(s), students: await countPresence(s.id) });
 }

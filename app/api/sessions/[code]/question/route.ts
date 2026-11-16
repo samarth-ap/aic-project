@@ -10,7 +10,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   if (!validDeviceId(deviceId)) return error("bad deviceId");
   const clean = String(text ?? "").trim().slice(0, 280);
   if (!clean) return error("empty question");
-  addQuestion(s.id, deviceId, Date.now() - s.started_at, clean);
+  await addQuestion(s.id, deviceId, Date.now() - s.started_at, clean);
   return json({ ok: true });
 }
 
@@ -19,5 +19,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ code: st
   const s = await sessionFrom(params);
   if (!s) return error("Not found", 404);
   if (!isAdmin(req, s)) return error("Professor key required", 403);
-  return json(getQuestions(s.id).map((q) => ({ t_ms: q.t_ms, text: q.text })));
+  return json((await getQuestions(s.id)).map((q) => ({ t_ms: q.t_ms, text: q.text })));
 }

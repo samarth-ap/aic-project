@@ -13,11 +13,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ code: s
   if (!TAP_KINDS.includes(kind)) return error("bad kind");
 
   const t = Date.now() - s.started_at;
-  const prev = lastTapMs(s.id, deviceId);
+  const prev = await lastTapMs(s.id, deviceId);
   if (prev !== null && t - prev < DEFAULT_CONFIG.cooldownMs) {
     return json({ ok: false, cooldownMs: DEFAULT_CONFIG.cooldownMs - (t - prev) }, 429);
   }
-  addTap(s.id, deviceId, kind as TapKind, t);
-  touchPresence(s.id, deviceId, t);
+  await addTap(s.id, deviceId, kind as TapKind, t);
+  await touchPresence(s.id, deviceId, t);
   return json({ ok: true, t_ms: t, cooldownMs: DEFAULT_CONFIG.cooldownMs });
 }
