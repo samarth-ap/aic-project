@@ -140,7 +140,7 @@ export default function ProfConsole({ params }: { params: Promise<{ code: string
             ) : (
               <p className="muted">Waiting for taps…</p>
             )}
-            <p className="small muted">Bars show the share of students who tapped in each 15-second window. Orange means 15% or more.</p>
+            <p className="small muted">Bars show the share of students who tapped in each 15-second window. Red means 15% or more.</p>
           </section>
         </div>
       </div>
