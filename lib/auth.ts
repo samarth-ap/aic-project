@@ -1,9 +1,8 @@
-// Sign-in with Google, restricted to UW accounts (NetID@uw.edu), plus the
-// permission checks the API routes use.
+// Sign-in (Google, Apple, or a 6-digit email code) and the permission checks
+// used by pages, server actions and API routes.
 //
-// Flow: /api/auth/google -> Google -> /api/auth/callback/google -> cookie.
 // The cookie holds a random token; the DB stores only its SHA-256 hash.
-// Sessions last 60 days, so people stay signed in ("auto-login").
+// Sessions last 60 days, so people stay signed in on their phone.
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import {
@@ -22,7 +21,7 @@ export const SESSION_COOKIE = "lf_session";
 const STATE_COOKIE = "lf_oauth";
 const SESSION_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 
-/** Email domains allowed to sign in. Default: UW only. */
+/** Email domains allowed to sign in (ALLOWED_EMAIL_DOMAINS, default uw.edu; "*" allows any). */
 export const allowedDomains = () =>
   (process.env.ALLOWED_EMAIL_DOMAINS ?? "uw.edu")
     .split(",")
@@ -30,19 +29,24 @@ export const allowedDomains = () =>
     .filter(Boolean);
 
 export const emailAllowed = (email: string) => {
+  const domains = allowedDomains();
+  if (domains.includes("*")) return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
   const domain = email.toLowerCase().split("@")[1] ?? "";
-  return allowedDomains().includes(domain);
+  return domains.includes(domain);
 };
 
 export const googleConfigured = () => Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+export const appleConfigured = () =>
+  Boolean(process.env.APPLE_CLIENT_ID && process.env.APPLE_TEAM_ID && process.env.APPLE_KEY_ID && process.env.APPLE_PRIVATE_KEY);
+export const emailConfigured = () => Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
 
 /**
- * Dev login (type any email, no Google) for local testing. On by default only
- * when Google isn't configured and we're not in production. DEV_LOGIN=1 forces
- * it on — never do that on a public deployment.
+ * Local testing without an email provider: the 6-digit code is shown on screen
+ * instead of emailed. On by default only outside production when no email
+ * provider is set. DEV_LOGIN=1 forces it on — never on a public deployment.
  */
 export const devLoginEnabled = () =>
-  process.env.DEV_LOGIN === "1" || (process.env.DEV_LOGIN !== "0" && !googleConfigured() && process.env.NODE_ENV !== "production");
+  process.env.DEV_LOGIN === "1" || (process.env.DEV_LOGIN !== "0" && !emailConfigured() && process.env.NODE_ENV !== "production");
 
 const secure = () => process.env.NODE_ENV === "production";
 
@@ -79,40 +83,52 @@ export async function signOut() {
 
 /** Only same-site relative paths, so the login can't be used as an open redirect. */
 export const safeNext = (next: string | null | undefined) =>
-  next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/dashboard";
+  next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/home";
 
-// ---------- Google OAuth (OpenID Connect, authorization-code flow) ----------
+export class LoginError extends Error {}
 
-const redirectUri = (req: Request) => `${process.env.PUBLIC_URL ?? new URL(req.url).origin}/api/auth/callback/google`;
+// ---------- email code ----------
 
-export async function googleAuthUrl(req: Request, next: string): Promise<string> {
+/** Sends the sign-in code. Returns the code itself only in dev mode (shown on screen). */
+export async function sendEmailCode(email: string, code: string): Promise<{ devCode?: string }> {
+  if (emailConfigured()) {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM,
+        to: email,
+        subject: `${code} is your Lost and Found code`,
+        text: `Your Lost and Found sign-in code is ${code}. It expires in 10 minutes.\n\nIf you didn't ask for it, ignore this email.`,
+      }),
+    });
+    if (!res.ok) throw new LoginError("We couldn't send the email. Try again in a minute.");
+    return {};
+  }
+  if (devLoginEnabled()) {
+    console.log(`[dev] sign-in code for ${email}: ${code}`);
+    return { devCode: code };
+  }
+  throw new LoginError("Email sign-in isn't set up on this server yet.");
+}
+
+// ---------- OAuth (Google, Apple) ----------
+
+const origin = (req: Request) => process.env.PUBLIC_URL ?? new URL(req.url).origin;
+
+async function saveState(next: string): Promise<string> {
   const state = crypto.randomBytes(16).toString("base64url");
   (await cookies()).set(STATE_COOKIE, JSON.stringify({ state, next: safeNext(next) }), {
     httpOnly: true,
     secure: secure(),
-    sameSite: "lax",
+    // Apple posts the callback cross-site, so its state cookie must be SameSite=None.
+    sameSite: secure() ? "none" : "lax",
     path: "/",
     maxAge: 600,
   });
-  const domains = allowedDomains();
-  const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID!,
-    redirect_uri: redirectUri(req),
-    response_type: "code",
-    scope: "openid email profile",
-    state,
-    prompt: "select_account",
-    // Shows only UW accounts in Google's picker. Not a security check by itself (we check the email below).
-    ...(domains.length === 1 ? { hd: domains[0] } : {}),
-  });
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  return state;
 }
-
-export class LoginError extends Error {}
-
-/** Handles Google's redirect back. Returns where to send the user next. */
-export async function finishGoogleLogin(req: Request): Promise<string> {
-  const url = new URL(req.url);
+async function takeState(got: string | null): Promise<string> {
   const jar = await cookies();
   const saved = jar.get(STATE_COOKIE)?.value;
   jar.delete(STATE_COOKIE);
@@ -120,13 +136,37 @@ export async function finishGoogleLogin(req: Request): Promise<string> {
   try {
     expected = saved ? JSON.parse(saved) : null;
   } catch {}
-  if (url.searchParams.get("error")) throw new LoginError("Sign-in was cancelled.");
-  const code = url.searchParams.get("code");
-  if (!code || !expected || url.searchParams.get("state") !== expected.state) {
-    throw new LoginError("Sign-in expired or was started in another tab. Please try again.");
-  }
+  if (!got || !expected || got !== expected.state) throw new LoginError("Sign-in expired or was started in another tab. Please try again.");
+  return expected.next;
+}
 
-  // Exchange the code directly with Google over TLS; this response is trusted without verifying a JWT signature.
+async function finishWithEmail(email: string | undefined, verified: boolean, name: string, picture = ""): Promise<void> {
+  if (!email || !verified) throw new LoginError("Your account has no verified email.");
+  if (!emailAllowed(email)) throw new LoginError(`Please use your university account (${allowedDomains().map((d) => "@" + d).join(" or ")}).`);
+  await signIn(await upsertUser(email, name, picture));
+}
+
+export async function googleAuthUrl(req: Request, next: string): Promise<string> {
+  const state = await saveState(next);
+  const domains = allowedDomains();
+  const params = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID!,
+    redirect_uri: `${origin(req)}/api/auth/callback/google`,
+    response_type: "code",
+    scope: "openid email profile",
+    state,
+    prompt: "select_account",
+    ...(domains.length === 1 && domains[0] !== "*" ? { hd: domains[0] } : {}),
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+}
+
+export async function finishGoogleLogin(req: Request): Promise<string> {
+  const url = new URL(req.url);
+  if (url.searchParams.get("error")) throw new LoginError("Sign-in was cancelled.");
+  const next = await takeState(url.searchParams.get("state"));
+  const code = url.searchParams.get("code");
+  if (!code) throw new LoginError("Sign-in failed. Please try again.");
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -134,51 +174,90 @@ export async function finishGoogleLogin(req: Request): Promise<string> {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: redirectUri(req),
+      redirect_uri: `${origin(req)}/api/auth/callback/google`,
       grant_type: "authorization_code",
     }),
   });
   if (!tokenRes.ok) throw new LoginError("Google sign-in failed. Please try again.");
   const { access_token } = (await tokenRes.json()) as { access_token?: string };
-  const infoRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
-    headers: { authorization: `Bearer ${access_token}` },
-  });
+  const infoRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { authorization: `Bearer ${access_token}` } });
   if (!infoRes.ok) throw new LoginError("Couldn't read your Google profile. Please try again.");
   const info = (await infoRes.json()) as { email?: string; email_verified?: boolean; name?: string; picture?: string };
+  await finishWithEmail(info.email, Boolean(info.email_verified), info.name ?? "", info.picture ?? "");
+  return next;
+}
 
-  if (!info.email || !info.email_verified) throw new LoginError("Your Google account has no verified email.");
-  if (!emailAllowed(info.email)) {
-    throw new LoginError(`Please sign in with your UW account (${allowedDomains().map((d) => "@" + d).join(" or ")}).`);
-  }
-  const user = await upsertUser(info.email, info.name ?? info.email.split("@")[0], info.picture ?? "");
-  await signIn(user);
-  return expected.next;
+/** Apple's client secret is a short-lived ES256 JWT signed with the team's key. */
+function appleClientSecret(): string {
+  const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64({ alg: "ES256", kid: process.env.APPLE_KEY_ID });
+  const body = b64({ iss: process.env.APPLE_TEAM_ID, iat: now, exp: now + 300, aud: "https://appleid.apple.com", sub: process.env.APPLE_CLIENT_ID });
+  const key = process.env.APPLE_PRIVATE_KEY!.replace(/\\n/g, "\n");
+  const sig = crypto.sign("sha256", Buffer.from(`${head}.${body}`), { key, dsaEncoding: "ieee-p1363" }).toString("base64url");
+  return `${head}.${body}.${sig}`;
+}
+
+export async function appleAuthUrl(req: Request, next: string): Promise<string> {
+  const state = await saveState(next);
+  const params = new URLSearchParams({
+    client_id: process.env.APPLE_CLIENT_ID!,
+    redirect_uri: `${origin(req)}/api/auth/callback/apple`,
+    response_type: "code",
+    response_mode: "form_post",
+    scope: "name email",
+    state,
+  });
+  return `https://appleid.apple.com/auth/authorize?${params}`;
+}
+
+export async function finishAppleLogin(req: Request): Promise<string> {
+  const form = await req.formData();
+  if (form.get("error")) throw new LoginError("Sign-in was cancelled.");
+  const next = await takeState(String(form.get("state") ?? ""));
+  const code = String(form.get("code") ?? "");
+  const tokenRes = await fetch("https://appleid.apple.com/auth/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: process.env.APPLE_CLIENT_ID!,
+      client_secret: appleClientSecret(),
+      redirect_uri: `${origin(req)}/api/auth/callback/apple`,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!tokenRes.ok) throw new LoginError("Apple sign-in failed. Please try again.");
+  // The id_token comes straight from Apple over TLS in exchange for our secret, so its payload is trusted.
+  const { id_token } = (await tokenRes.json()) as { id_token?: string };
+  const claims = JSON.parse(Buffer.from(String(id_token).split(".")[1] ?? "", "base64url").toString() || "{}") as {
+    email?: string;
+    email_verified?: boolean | string;
+  };
+  let name = "";
+  try {
+    const u = JSON.parse(String(form.get("user") ?? "{}"));
+    name = [u?.name?.firstName, u?.name?.lastName].filter(Boolean).join(" ");
+  } catch {}
+  await finishWithEmail(claims.email, claims.email_verified === true || claims.email_verified === "true", name);
+  return next;
 }
 
 // ---------- permissions ----------
 
-/**
- * Who is acting on a lecture: a signed-in user (stable across their devices,
- * so they get a history) or an anonymous device id. Returns null if neither is valid.
- */
-export async function actorFor(req: Request, deviceId: unknown): Promise<{ actor: string; user: User | null } | null> {
-  const user = await currentUser(req);
-  if (user) return { actor: userActorId(user.id), user };
-  if (typeof deviceId === "string" && /^[a-zA-Z0-9-]{8,64}$/.test(deviceId) && !deviceId.startsWith("user-")) {
-    return { actor: deviceId, user: null };
-  }
-  return null;
-}
+/** The id a student's taps and chats are stored under. Students must be signed in. */
+export const actorOf = (user: User) => userActorId(user.id);
 
-/** Professor/TA access to a lecture: the lecture's admin key, or being instructor/TA of its class. */
-export async function canManage(req: Request, session: Session): Promise<boolean> {
-  const key = req.headers.get("x-admin-key") ?? new URL(req.url).searchParams.get("k");
-  if (key && key === session.admin_key) return true;
+/** Professor/TA access to a lecture: being instructor or TA of its class (or the lecture's key, for scripts). */
+export async function canManage(req: Request | null, session: Session, user?: User | null): Promise<boolean> {
+  if (req) {
+    const key = req.headers.get("x-admin-key") ?? new URL(req.url).searchParams.get("k");
+    if (key && key === session.admin_key) return true;
+  }
   if (!session.class_id) return false;
-  const user = await currentUser(req);
-  if (!user) return false;
-  const role = await getRole(session.class_id, user.id);
-  return role === "instructor" || role === "ta";
+  const u = user === undefined ? await currentUser(req ?? undefined) : user;
+  if (!u) return false;
+  return isStaffRole(await getRole(session.class_id, u.id));
 }
 
 export const isStaffRole = (r: Role | null) => r === "instructor" || r === "ta";

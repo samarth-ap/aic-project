@@ -7,6 +7,8 @@
 //
 // Groq is called with plain fetch, so there's no extra dependency.
 import { z } from "zod";
+import Anthropic from "@anthropic-ai/sdk";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 
 export type Provider = "anthropic" | "groq";
 
@@ -141,4 +143,69 @@ export async function groqJson<S extends z.ZodType>(opts: {
     }
   }
   throw new Error(`Could not parse the AI's response: ${(lastErr as Error)?.message?.slice(0, 200)}`);
+}
+
+// ---------- One API for both providers ----------
+// `fast` is for live work (tutor, rolling summary, quizzes); `smart` for after-class analysis.
+
+
+export const SMART_MODEL = process.env.CLAUDE_MODEL ?? "claude-opus-5-5";
+export const FAST_MODEL = process.env.CHAT_MODEL ?? "claude-sonnet-5-5";
+
+/** Structured output from whichever provider is configured. Throws if none is. */
+export async function aiJson<S extends z.ZodType>(opts: {
+  schema: S;
+  name: string;
+  system: string;
+  user: string;
+  maxTokens: number;
+  tier: "fast" | "smart";
+  effort?: Effort;
+}): Promise<z.infer<S>> {
+  const provider = aiProvider();
+  if (!provider) throw new Error("No AI provider configured");
+  const effort = opts.effort ?? (opts.tier === "fast" ? "low" : ((process.env.CLAUDE_EFFORT as Effort) ?? "medium"));
+  if (provider === "groq") {
+    return groqJson({ schema: opts.schema, name: opts.name, system: opts.system, user: opts.user, maxTokens: opts.maxTokens, effort });
+  }
+  const res = await new Anthropic().beta.messages.parse({
+    model: opts.tier === "fast" ? FAST_MODEL : SMART_MODEL,
+    max_tokens: opts.maxTokens,
+    output_config: { effort, format: betaZodOutputFormat(opts.schema) },
+    system: opts.system,
+    messages: [{ role: "user", content: opts.user }],
+  });
+  if (res.stop_reason === "refusal") throw new Error("The model declined this request.");
+  if (res.stop_reason === "max_tokens") throw new Error("Response was cut off (max_tokens).");
+  if (!res.parsed_output) throw new Error("Could not parse the model's response.");
+  return res.parsed_output as z.infer<S>;
+}
+
+/** Streams a chat reply as text chunks from whichever provider is configured. */
+export async function* aiStream(opts: {
+  system: string[];
+  messages: { role: "user" | "assistant"; content: string }[];
+  maxTokens: number;
+  effort?: Effort;
+}): AsyncGenerator<string> {
+  const provider = aiProvider();
+  if (!provider) throw new Error("No AI provider configured");
+  if (provider === "groq") {
+    yield* groqStream({ system: opts.system.join("\n\n"), messages: opts.messages, maxTokens: opts.maxTokens, effort: opts.effort ?? "low" });
+    return;
+  }
+  const stream = new Anthropic().messages.stream({
+    model: FAST_MODEL,
+    max_tokens: opts.maxTokens,
+    output_config: { effort: opts.effort ?? ((process.env.CHAT_EFFORT as Effort) ?? "low") },
+    cache_control: { type: "ephemeral" },
+    system: opts.system.map((text) => ({ type: "text" as const, text })),
+    messages: opts.messages,
+  });
+  for await (const event of stream) {
+    if (event.type === "content_block_delta" && event.delta.type === "text_delta") yield event.delta.text;
+  }
+  const final = await stream.finalMessage();
+  if (final.stop_reason === "refusal") yield "\n\nSorry, I can't help with that one. Try asking your professor or TA.";
+  if (final.stop_reason === "max_tokens") yield "…";
 }

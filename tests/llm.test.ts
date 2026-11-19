@@ -40,23 +40,14 @@ describe("trimForGroq", () => {
   const min = 60_000;
   // One segment per minute for a 50-minute lecture.
   const segs = Array.from({ length: 50 }, (_, i) => ({ start_ms: i * min, end_ms: (i + 1) * min - 1, text: `m${i}` }));
-  const input = (nowMs: number, asked: number[] = []) => ({
-    session: { title: "L", course: "", ended: false },
-    nowMs,
-    transcript: segs,
-    history: asked.map((t, id) => ({
-      id, session_id: 1, device_id: "d", role: "user" as const, kind: "lost" as const, t_ms: t, content: "", created_at: 0,
-    })),
-  });
-
   it("keeps only the last ~12 minutes before now", () => {
-    const { segs: kept, trimmed } = trimForGroq(segs, input(40 * min));
+    const { segs: kept, trimmed } = trimForGroq(segs, [40 * min]);
     expect(trimmed).toBe(true);
     expect(kept[0].text).toBe("m28");
     expect(kept.at(-1)!.text).toBe("m42");
   });
   it("also keeps the part around an earlier tap", () => {
-    const { segs: kept } = trimForGroq(segs, input(45 * min, [10 * min]));
+    const { segs: kept } = trimForGroq(segs, [45 * min, 10 * min]);
     const texts = kept.map((s) => s.text);
     expect(texts).toContain("m5");
     expect(texts).toContain("m40");

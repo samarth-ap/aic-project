@@ -23,16 +23,24 @@ describe("emailAllowed", () => {
   });
 });
 
+describe("ALLOWED_EMAIL_DOMAINS=*", () => {
+  it("allows any well-formed address", () => {
+    process.env.ALLOWED_EMAIL_DOMAINS = "*";
+    expect(emailAllowed("a@school.edu")).toBe(true);
+    expect(emailAllowed("nope")).toBe(false);
+  });
+});
+
 describe("safeNext (no open redirects after login)", () => {
   it("keeps same-site paths", () => {
     expect(safeNext("/c/ABC123")).toBe("/c/ABC123");
     expect(safeNext("/s/K7Q2MX?x=1")).toBe("/s/K7Q2MX?x=1");
   });
   it("rejects other sites", () => {
-    expect(safeNext("https://evil.com")).toBe("/dashboard");
-    expect(safeNext("//evil.com")).toBe("/dashboard");
-    expect(safeNext("/\\evil.com")).toBe("/dashboard");
-    expect(safeNext(null)).toBe("/dashboard");
+    expect(safeNext("https://evil.com")).toBe("/home");
+    expect(safeNext("//evil.com")).toBe("/home");
+    expect(safeNext("/\\evil.com")).toBe("/home");
+    expect(safeNext(null)).toBe("/home");
   });
 });
 
@@ -43,8 +51,8 @@ describe("devLoginEnabled", () => {
     delete process.env.GOOGLE_CLIENT_ID;
     expect(devLoginEnabled()).toBe(false);
   });
-  it("is off once Google is configured", () => {
-    process.env = { ...saved, NODE_ENV: "development", GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "s" } as NodeJS.ProcessEnv;
+  it("is off once an email service is configured", () => {
+    process.env = { ...saved, NODE_ENV: "development", RESEND_API_KEY: "k", EMAIL_FROM: "a@b.c" } as NodeJS.ProcessEnv;
     delete process.env.DEV_LOGIN;
     expect(devLoginEnabled()).toBe(false);
   });

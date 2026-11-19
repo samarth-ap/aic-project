@@ -1,22 +1,12 @@
-# Lost & Found
+# Lost and Found
 
-**Tap when you're lost. Get found after class.**
+**Lose the thread in a lecture? Tap once and get back on track in under a minute.**
 
 UW AI Collective · Project Cycles · Demo Day (December)
 
-During lecture, students tap **I'm lost** (or *too fast* / *example please* / *got it*) on their phones, anonymously.
+The professor records the lecture in the app and it's transcribed as it happens. A student who gets lost taps a big red **Lost** button and gets a short TLDR of what was just said from an AI tutor that already knows the lecture up to that second. They can keep chatting if the short answer isn't enough.
 
-**Tapping "I'm lost" opens a private AI tutor** that has heard the lecture so far (live captions). It explains what the professor just said in a few sentences, quoting their words, and the student can ask follow-ups. During class it keeps answers short and nudges them to keep listening; after class the same chat goes deeper with the full transcript.
-
-Afterward, the app lines the taps up with the lecture transcript and Claude:
-
-- splits the lecture into **concepts** and maps each confusion spike to one,
-- finds the **root cause**: an earlier concept that didn't land,
-- writes a **2-minute brief for the professor**: what lost people, why, a concrete fix, a recap slide for next lecture, and a ready-to-paste Canvas/Ed clarification post,
-- writes a **catch-up card for every student who tapped**: a short re-explanation of exactly the moment *they* got lost, plus a practice question,
-- groups concepts into **topics across the quarter** so the professor sees what keeps losing people.
-
-Students tap because it helps *them* (each tap bookmarks a moment for their catch-up card). Professors get the class-wide map as a side effect.
+Every tap is stamped against the professor's one recording, so the whole class shares one timeline. After the lecture the professor sees where the class got lost (like YouTube's "most replayed" curve, but for confusion) and publishes a short clarification for each hotspot. Students see the same hotspots without names, their own moments for exam review, a concept map and a personalised study plan.
 
 ---
 
@@ -26,203 +16,166 @@ Needs **Node 22.13+** (uses the built-in `node:sqlite`, so nothing native to com
 
 ```bash
 npm install
-cp .env.example .env.local      # add ANTHROPIC_API_KEY for AI analysis
-npm run seed                    # demo course: 2 analyzed MATH 208 lectures
+cp .env.example .env.local      # optional: add ANTHROPIC_API_KEY (or GROQ_API_KEY) for the AI tutor
+npm run seed                    # demo: CSE 143 with 12 lectures, ~96 students
 npm run dev                     # http://localhost:3000
 ```
 
-`npm run seed` prints links to each demo report (with the professor key) and student catch-up page.
+Sign in with **Use my email**. With no email service configured (local dev), the 6-digit code is shown on screen.
+
+| Account | Opens |
+|---|---|
+| `prof@uw.edu` | Professor web app (`/teach`) |
+| `student@uw.edu` | Student app (`/app`). Best viewed at phone width, or on a phone. |
+
+To try a **live lecture** without a microphone, run `npm run simulate` in a second terminal: it starts a lecture in CSE 143 twenty minutes in, replays the transcript in real time and has classmates tap Lost around the hotspots. Join it as the student, tap Lost, and open `/teach/live/CODE` as the professor. Ctrl+C ends it and runs the after-lecture analysis.
 
 | Command | What it does |
 |---|---|
 | `npm run dev` | Dev server |
-| `npm test` | Unit tests for spike detection and caption parsing |
-| `npm run seed` | Demo course with synthetic taps + transcript, analyzed |
-| `npm run simulate -- <CODE> 30` | 30 fake students join a **live** lecture; press Enter to trigger a confusion spike. For rehearsing the demo. |
-| `npm run typecheck` | TypeScript check |
+| `npm test` | Unit tests (hotspots, tutor format, study plan, quizzes, captions, auth) |
+| `npm run seed` | Resets the local SQLite database and loads the demo |
+| `npm run simulate` | A live demo lecture (`-- --at 5` to start 5 minutes in) |
+| `npm run typecheck` / `npm run lint` | Checks |
 
-Delete `data/` to reset the database.
+## What's in the app
 
-## Run it on your laptop (step by step)
+### Students (phone)
 
-1. **Install Node.js 22.13 or newer** from https://nodejs.org (LTS is fine). Check with `node -v`.
-2. **Get the code and install packages**
-   ```bash
-   git clone https://github.com/samarth-ap/aic-project.git
-   cd aic-project
-   npm install
-   ```
-3. **Add a Claude API key** (needed for the AI tutor and AI reports; without it everything else still runs in offline mode).
-   Create a key at https://platform.claude.com → API keys, add a few dollars of credit, then:
-   ```bash
-   cp .env.example .env.local
-   ```
-   Open `.env.local` and paste the key after `ANTHROPIC_API_KEY=`. Never commit this file (it's already in `.gitignore`).
-4. **Optional: demo data** — `npm run seed` creates two analyzed MATH 208 lectures and prints their links.
-5. **Start it** — `npm run dev`, then open http://localhost:3000.
-6. **Try the AI tutor yourself (one laptop)**
-   - Home page → *I'm teaching* → **Start lecture**. Keep this tab open: it's the professor view.
-   - Click **Start live captions** and allow the microphone (use Chrome or Edge). Talk about something for a minute, or play a lecture video out loud.
-   - Open the student link (`http://localhost:3000/s/CODE`) in a second tab, tap **I'm lost**, and the tutor explains what was just said.
-7. **Use real phones (same Wi-Fi)**
-   - Find your laptop's IP: `ipconfig getifaddr en0` (Mac) or `ipconfig` (Windows), e.g. `192.168.1.20`.
-   - Put `PUBLIC_URL=http://192.168.1.20:3000` in `.env.local` and restart `npm run dev`, so the QR code points at your laptop.
-   - Keep the professor view on `http://localhost:3000` (browsers only allow the microphone on localhost or https). Phones scan the QR code.
-   - Campus Wi-Fi (eduroam) often blocks phone-to-laptop traffic. Use a phone hotspot, or a tunnel like `npx localtunnel --port 3000` / Cloudflare Tunnel and set `PUBLIC_URL` to the tunnel URL.
-8. **Rehearse a full class** — `npm run simulate -- CODE 30 http://localhost:3000` adds 30 fake students; press Enter for a confusion spike. Then **End lecture & analyze** on the professor view.
+Four tabs plus a full-screen live mode. Add it to the home screen for an app-like experience (it ships a web manifest).
 
-**Cost:** tutor replies use Claude Sonnet 5.5 (a fraction of a cent to about a cent each, more for a long transcript); the after-class report uses Claude Opus 5.5 (cents per lecture). Each phone is limited to 6 tutor messages a minute (`CHAT_PER_MINUTE`).
+| Screen | What it does |
+|---|---|
+| Welcome, sign in | Google, Apple (when configured) or a 6-digit email code |
+| Join | Scan the professor's QR code or type the class code (once per class). A one-off lecture code works too. |
+| Classes | Class cards, a **Live now** banner with **Join lecture** |
+| Class page | Study plan and concept map cards, lectures with *your* Lost count and the class hotspot count |
+| Live lecture | One big red **Lost** button, live clock, "My moments this lecture". Dark by default, no sounds, light haptic. Taps made offline are queued with their lecture time and sent on reconnect. |
+| Tutor sheet | Opens over the live screen. TLDR first (about 60 words, names the concept: "You're in: base cases"), then **Got it** / **Explain more** / **Give an example**, typed follow-ups, and **What did I miss?** (a two-line catch-up of what was said since the tap). A second tap within 30 s reopens the same thread. |
+| Lecture page | Where the class got lost (curve with your moments in gold, tap a peak to jump there), replay with transcript, hotspot cards with published clarifications |
+| Concept map | Built after each lecture (or across the class): taught concepts, class hotspots filled, your questions as dashed gold branches |
+| My moments | Every Lost moment and chat, searchable, filter by "Still fuzzy" or class, mark *Got it* / *Still fuzzy*, delete a thread |
+| Study | Countdown to the exam, today's ~20-minute plan (weak spots first), 5-question checks, "Rewatch 2 min", "Explain again", where you stand by topic |
+| Profile | Notification and dark-screen settings, privacy note, download my chats, delete my data |
+
+### Professors (laptop web app)
+
+| Screen | What it does |
+|---|---|
+| Class page | Class code + QR, topics that keep coming up, drafts waiting for review, lecture table (joined, lost at least once, hotspots, clarifications), **Start lecture** (title + optional slides/notes for the tutor) |
+| Live lecture | Big QR and code to project, recording indicator and clock, students joined, optional live Lost count (off by default), tutor context (slides, microphone level, transcript status), **Stop lecture** |
+| Lecture: Insights | Lost taps, students lost at least once, resolved by the tutor, hotspots; the confusion curve; for each hotspot the transcript excerpt, students' grouped questions, an editable draft clarification, **Publish**, **Attach link or video**, **Dismiss** |
+| Lecture: Recording | Audio player over the confusion curve, transcript (click a line to play from there), jump to a hotspot |
+| Lecture: Clarifications | What students see, with "opened by", "of students lost here" and "marked Got it after" |
+| Term trends | Students lost by lecture, tutor resolution rate, topics that keep producing hotspots and how many students are still fuzzy |
+| Class settings | Rename, exam date, end-of-term audio deletion date, graded work the tutor must not answer, regenerate code, TA code, remove students |
 
 ## How it works
 
 ```
- Student phone (/s/CODE)         Professor laptop (/prof/CODE)
-   tap lost / too fast /           QR code + live confusion chart
-   example / got it + questions    live captions (Web Speech API) or .vtt/.srt upload
-          │  "I'm lost" also opens the AI tutor:
-          │  POST /api/sessions/CODE/chat → Claude streams an explanation
-          │  grounded in the transcript so far (lib/analysis/tutor.ts)
-          ▼                                   ▼
-   POST /api/sessions/CODE/tap        POST /api/sessions/CODE/transcript
-   (server timestamps, 8s cooldown)   (server timestamps each phrase)
-          └──────────────┬────────────────────┘
-                         ▼
-               SQLite  (lib/db.ts)
-                         │  "End lecture & analyze"
-                         ▼
-   lib/analysis/signal.ts   — dedupe → shift taps ~20s back for reaction lag
-                              → 30s bins → share of active students
-                              → spikes = windows well above the lecture's baseline
-                                and ≥ MIN_DEVICES distinct students (privacy floor)
-   lib/analysis/report.ts   — Claude (structured output): concepts, moment → concept,
-                              root cause, fix, catch-up cards, question clusters,
-                              recap slide, clarification post
-   lib/analysis/trends.ts   — Claude groups concepts across lectures into topics
-                         │
-          ┌──────────────┴───────────────┐
-          ▼                              ▼
-  /prof/CODE/report               /s/CODE/catchup
-  /course?course=...              (cards for the moments THIS phone tapped)
+Professor laptop (/teach/live/CODE)                    Student phone (/app/live/CODE)
+  microphone → MediaRecorder, 10 s chunks ─┐             tap Lost ──► POST /api/lectures/CODE/lost
+  (queued and retried if the network drops) │              (server stamps lecture time; 30 s rule)
+  speech-to-text (browser) → phrases ──┐    │            tutor  ──► POST /api/lectures/CODE/tutor
+                                       ▼    ▼                       streams the TLDR / follow-ups
+                     POST …/transcript   POST …/audio
+                              │
+                              ▼
+                  Postgres or SQLite (lib/db.ts)
+                              │
+     running summary + concept list, about once a minute   (lib/analysis/live.ts)
+     tutor context at each tap: last 3-5 min weighted to the
+     last 90 s, summary, slides, the student's earlier moments  (lib/analysis/tutor.ts)
+                              │  Stop lecture
+                              ▼
+     hotspots: 30 s buckets, one count per student per bucket,
+     ≥ max(3, 10% of joined), peaks within 90 s merge           (lib/analysis/hotspots.ts)
+     concept map, hotspot labels, grouped questions, draft TLDRs (lib/analysis/lecture.ts)
+     study plan and checks                                       (lib/analysis/study.ts)
 ```
 
-### Pages
+All lecture times are milliseconds from the start of the professor's recording, set by the server, so every tap lands on the same timeline whatever the phone's clock says.
 
-| Path | Who | What |
-|---|---|---|
-| `/` | everyone | Join with a code, or start a lecture |
-| `/s/CODE` | student | Big tap button, anonymous question box |
-| `/s/CODE/catchup` | student | Personal catch-up cards after class |
-| `/prof/CODE` | professor | QR code, live chart and alert, live captions / caption upload, end & analyze |
-| `/prof/CODE/report` | professor | Post-lecture brief |
-| `/course?course=…` | professor | Quarter view: topics ranked by confusion |
+### AI
 
-### Privacy model
+- `ANTHROPIC_API_KEY` → Claude (tutor and running summary on `CHAT_MODEL`, default Sonnet 5.5; after-lecture analysis on `CLAUDE_MODEL`, default Opus 5.5).
+- `GROQ_API_KEY` → Groq's free tier (`lib/analysis/llm.ts`).
+- Neither → **offline mode**: everything works, but the tutor quotes what the professor just said instead of explaining it, concept names come from the transcript, drafts are empty for the professor to write, and checks are fill-the-gap questions from the transcript.
 
-- Students never log in. Each phone gets a random id in `localStorage`; it's never linked to a name.
-- Professors never see device ids. Reports only show moments with **≥ `MIN_DEVICES` distinct students** (default 3 for demos, use 5+ in real classes).
-- Catch-up cards are looked up by the phone's own id (hashed in the stored report). Only that phone can ask for its cards.
-- Professor pages need the session's admin key (kept in the professor's browser, or in the `#k=` link).
-- Taps and caption lines are time-stamped by the server, not the phone.
+### Privacy
 
-## Demo-day script (≈4 minutes)
+- Professors see counts and shares, never who tapped Lost or what anyone asked. Grouped questions are paraphrased (with AI) or exact repeats.
+- Students see class hotspots without names; in lectures with fewer than 10 students joined, shares show as "a few students".
+- Tutor chats and study plans are visible only to the student. Students can download or delete their chats, or delete all their data.
+- Names appear to staff only in class settings (to manage the roster), never next to taps or chats.
+- Audio is deleted on the class's end-of-term date; transcripts, markers and chats stay.
+- A "this lecture is being recorded" notice shows on the projected join screen and on the student's live screen.
 
-1. **Hook (30s)**: "How many of you have been lost in lecture and said nothing?"
-2. **Live mini-lecture (2 min)**: put `/prof/CODE` on the projector. The audience scans the QR code. Give a 2-minute explanation with one deliberately confusing jump in it. Turn on live captions. Watch the live chart and alert light up.
-3. **The reveal (1 min)**: click *End lecture & analyze*. Show the brief: the spike landed on the confusing jump, the root cause, the suggested fix. Then show a phone with its catch-up card.
-4. **The quarter view (30s)**: open the seeded MATH 208 course: "after a few weeks, this is what a professor sees."
-5. **Close with pilot numbers** from a real section.
+## Configuration
 
-Rehearse with `npm run simulate`. Have a seeded report ready in another tab in case the Wi-Fi fails.
+See `.env.example`. The main ones:
 
-**Phones need to reach your laptop.** Either deploy (see below) or run a tunnel such as `cloudflared tunnel --url http://localhost:3000` and set `PUBLIC_URL` to the tunnel URL so the QR code points there.
+| Variable | Purpose |
+|---|---|
+| `ANTHROPIC_API_KEY` or `GROQ_API_KEY` | AI tutor and analysis |
+| `DATABASE_URL` | Postgres (required on Vercel). Without it, SQLite in `data/`. |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Send sign-in codes by email (https://resend.com). Without them, local dev shows the code on screen. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in |
+| `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Sign in with Apple |
+| `ALLOWED_EMAIL_DOMAINS` | Who may sign in (default `uw.edu`; `*` for anyone) |
+| `PUBLIC_URL` | What the QR code links to (a tunnel or your laptop's IP when testing with phones) |
 
-## Accounts, classes and roles
+**Google sign-in:** Google Cloud console → OAuth consent screen (External; scopes `openid email profile`) → Credentials → OAuth client (Web). Redirect URIs: `https://<your-app>/api/auth/callback/google` and `http://localhost:3000/api/auth/callback/google`.
 
-- **Sign-in:** Google, limited to UW accounts (NetID@uw.edu). People stay signed in for 60 days.
-- **Classes:** anyone signed in can create a class and becomes its **instructor**. A class has a **class code** (students join with it) and a **staff code** (TAs join with it; only the instructor sees it). Students who join a lecture of a class while signed in are added to it automatically.
-- **Lectures** are started from the class page and grouped under the class. The old one-off lectures (no account, `#k=` link) still work for quick demos.
-- **Guests:** by default students can tap without signing in. The instructor can tick *Require UW sign-in* on the class page.
+**Apple sign-in:** in the Apple Developer account create a Services ID (that's `APPLE_CLIENT_ID`) with the return URL `https://<your-app>/api/auth/callback/apple`, and a Sign in with Apple key (`APPLE_KEY_ID`, its `.p8` contents as `APPLE_PRIVATE_KEY`). Apple requires https, so test it on the deployed app.
 
-| | Instructor | TA | Student |
-|---|---|---|---|
-| Start/end lectures, console, summaries, topics across lectures | ✓ | ✓ | |
-| Roster (names + emails) | ✓ | ✓ | |
-| Who tapped / what anyone asked the tutor | ✗ | ✗ | only their own |
-| Class settings, staff code | ✓ | | |
-| Own dashboard: lectures, how lost, chat history, study plan | | | ✓ |
+## Using real phones
 
-Privacy: taps and chats from signed-in students are stored under an internal id (`user-000123`) so their dashboard works across devices. Staff-facing APIs only return class-wide numbers and the roster; reports store hashed ids only.
+- Phones need to reach the server. Deploy (below), or run a tunnel such as `cloudflared tunnel --url http://localhost:3000` and set `PUBLIC_URL` to it so the QR code points there.
+- The professor's page needs the microphone, which browsers allow only on `localhost` or https. Live transcription uses the browser's speech recognition: use **Chrome or Edge** on the professor's laptop.
+- Campus Wi-Fi often blocks phone-to-laptop traffic; a tunnel or a deployment avoids that.
 
-**Code:** `lib/auth.ts` (sign-in, permissions), `lib/classes.ts` (class and student views), `lib/analysis/study.ts` (study plan), `app/dashboard`, `app/c/[code]`, `app/login`.
+## Deploying (Vercel)
 
-### UW sign-in (Google OAuth) setup — free, ~10 minutes
+1. Import the repo on vercel.com (Next.js defaults).
+2. *Storage → Create Database → Neon* and connect it (sets `DATABASE_URL`). Tables are created on first request.
+3. Add `ANTHROPIC_API_KEY` (or `GROQ_API_KEY`), `RESEND_API_KEY` + `EMAIL_FROM`, and any sign-in keys. Redeploy.
+4. Optional demo data in the hosted database: `DATABASE_URL="<url>" npm run seed -- --force`.
 
-1. Go to https://console.cloud.google.com → create a project (e.g. "Lost and Found").
-2. **APIs & Services → OAuth consent screen**: user type **External**, app name, your email. Add scopes `openid`, `email`, `profile`. While the app is in *Testing*, add your team's @uw.edu emails as test users; click **Publish app** before demo day so any UW student can sign in (these basic scopes don't need Google review).
-3. **APIs & Services → Credentials → Create credentials → OAuth client ID** → *Web application*. Authorized redirect URIs:
-   - `https://<your-app>.vercel.app/api/auth/callback/google`
-   - `http://localhost:3000/api/auth/callback/google` (for local dev)
-4. Copy the client ID and secret into Vercel → Settings → Environment Variables as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then redeploy.
+Lecture audio is stored in the database (about 12 MB per 50-minute lecture at 32 kbps). For a long pilot, move it to object storage.
 
-Real UW NetID SSO (Shibboleth) needs UW-IT to register the app; Google sign-in with `@uw.edu` gives the same identity without that wait.
+## Demo-day script (about 4 minutes)
 
-## Deploying
+1. **Hook:** "How many of you have been lost in lecture and said nothing?"
+2. **Live:** project `/teach/live/CODE`. The audience scans the QR code and joins. Give a two-minute explanation with one deliberately confusing jump. People tap Lost and get a TLDR on their phones.
+3. **The reveal:** Stop lecture. Show Insights: the peak landed on the confusing jump, the grouped questions, the draft clarification. Publish it and show it arriving on a phone.
+4. **The term:** open Term trends and a student's Study tab on the seeded CSE 143.
 
-`lib/db.ts` has two backends with the same SQL:
+Rehearse with `npm run simulate`; keep a seeded lecture open in another tab in case the Wi-Fi fails.
 
-- **No `DATABASE_URL`** → SQLite file in `data/` (local dev, or any host with a persistent disk: `npm run build && npm start`).
-- **`DATABASE_URL` (or `POSTGRES_URL`) set** → Postgres. Tables are created automatically on first request.
+## Not built yet
 
-### Vercel
-
-Vercel's filesystem is wiped between requests, so it needs Postgres.
-
-1. **Import the repo**: vercel.com → *Add New → Project* → pick this GitHub repo. Framework is detected as Next.js; keep the defaults.
-2. **Add a database**: in the project, *Storage → Create Database → Neon* (free tier) and connect it to the project. This sets `DATABASE_URL` for you. (Supabase works too: paste its *connection pooler* URL as `DATABASE_URL`.)
-3. **Add an AI key**: *Settings → Environment Variables* → `ANTHROPIC_API_KEY` (Claude), **or** `GROQ_API_KEY` for Groq's free tier (see below). Optional: `MIN_DEVICES`, `CHAT_MODEL`, etc. from `.env.example`. Don't set `PUBLIC_URL`; the QR code uses the deployed URL automatically.
-4. **Redeploy** (*Deployments → ⋯ → Redeploy*) so the new env vars are picked up.
-5. **Optional demo data** in the hosted database, from your laptop:
-   ```bash
-   DATABASE_URL="<the Neon URL from Vercel>" ANTHROPIC_API_KEY=sk-... npm run seed
-   ```
-   Then open `https://<your-app>.vercel.app/prof/CODE/report#k=KEY` with the links it prints.
-
-### Using Groq instead of Claude (free tier)
-
-Set `GROQ_API_KEY` (from https://console.groq.com) instead of `ANTHROPIC_API_KEY`. The tutor uses `openai/gpt-oss-20b` and reports use `openai/gpt-oss-120b`; change them with `GROQ_CHAT_MODEL` / `GROQ_MODEL`. Code: `lib/analysis/llm.ts`.
-
-- Free-tier limits are per account, so when a whole class taps at once some tutor replies may say "the AI tutor is busy, try again". To stay under the limit, the tutor only sees ~12 minutes of transcript before each question (`GROQ_TUTOR_WINDOW_MIN`).
-- If a report request is rate-limited or too long, the app shows the offline report with a warning; click analyze again a minute later.
-- Reports from open models are usually less polished than Claude's. Try it on a recorded lecture before demo day.
-
-Live captions need the microphone, which browsers allow on https, so the professor view works directly on the Vercel URL. Phones just scan the QR code; no tunnel or same-Wi-Fi needed.
-
-## 4-week plan to Demo Day
-
-| Week | Goal | Done when |
-|---|---|---|
-| 1 (now) | Run the scaffold locally, add API key, deploy or set up a tunnel. Find 1–2 pilot sections (a TA or friendly professor). | Teammates can tap from their phones on a deployed URL. |
-| 2 | Tune the AI: run on a real recorded lecture (Panopto captions export) with simulated taps. Tune prompts, lag (`lagMs`) and thresholds. | Report on a real lecture reads as accurate to someone who took the class. |
-| 3 | **Pilot in a real section.** Collect: % of students who tapped, taps per student, prof rating of brief accuracy (1–5), student rating of catch-up cards. | Real data from ≥ 1 lecture. |
-| 4 | Polish UI, rehearse demo, put pilot numbers on slides. | Two full dry runs. |
-
-### Ideas after the MVP
-
-- Panopto/Canvas integration to pull captions and post the clarification automatically
-- Exam-question tagging → show that confusion predicted lower scores on those questions
-- TA view for discussion sections, built from the week's confusion
-- Weekly email digest for the professor
+- Native iOS/Android apps. The student app is a mobile web app (installable to the home screen) built to the mockups; the same screens can move to a cross-platform app later.
+- Push notifications ("Tell me when a lecture starts", daily study reminder): the settings are saved but nothing is sent yet.
+- A hosted streaming speech-to-text service: live transcription uses the browser's speech recognition on the professor's laptop. A caption file (`.vtt`/`.srt`) can replace the transcript afterwards via `POST /api/lectures/CODE/transcript`.
+- Real-time push to phones: the app polls every 5-8 seconds; tutor answers stream.
+- Later in the spec: concept map that grows live, visual explanations, live-stream and Panopto import, university SSO, paid plans, "Draft a review handout".
 
 ## Project layout
 
 ```
-app/                     Next.js pages + API routes (app/api/…)
-components/              Timeline chart, LiveCaptions
-lib/db.ts                SQLite storage
-lib/analysis/signal.ts   Spike detection (pure, unit-tested)
-lib/analysis/transcript.ts  VTT/SRT parsing + helpers
-lib/analysis/report.ts   Claude analysis + offline fallback
-lib/analysis/trends.ts   Quarter view topic grouping
-scripts/                 seed + simulate
-tests/                   vitest
+app/                        Next.js pages, server actions (app/actions.ts) and API routes (app/api/…)
+  app/                      student app: (tabs)/…, live/[code], map/[kind]/[code]
+  teach/                    professor web app: (shell)/[class]/…, live/[code]
+components/                 Player (replay, confusion curve, transcript), Tutor, TabBar, icons
+lib/db.ts                   storage (Postgres or SQLite)
+lib/auth.ts                 sign-in and permissions
+lib/views.ts                data for each screen, with the privacy rules
+lib/analysis/hotspots.ts    confusion timeline and hotspots (pure, unit-tested)
+lib/analysis/tutor.ts       the tutor (prompt, context, offline fallback)
+lib/analysis/live.ts        running summary during the lecture
+lib/analysis/lecture.ts     after-lecture processing
+lib/analysis/study.ts       study plan and checks
+scripts/                    seed, simulate, demo data
+tests/                      vitest
 ```
