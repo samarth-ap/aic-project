@@ -114,7 +114,9 @@ export async function sendEmailCode(email: string, code: string): Promise<{ devC
 
 // ---------- OAuth (Google, Apple) ----------
 
-const origin = (req: Request) => process.env.PUBLIC_URL ?? new URL(req.url).origin;
+// The address the browser used, so the callback comes back to the same site (and its cookies).
+// PUBLIC_URL is only for links shown to others (the QR code), not for sign-in.
+const origin = (req: Request) => process.env.AUTH_URL ?? new URL(req.url).origin;
 
 async function saveState(next: string): Promise<string> {
   const state = crypto.randomBytes(16).toString("base64url");
