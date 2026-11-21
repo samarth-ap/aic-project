@@ -32,6 +32,7 @@ export default function EmailLogin({ next }: { next: string }) {
     try {
       const d = await post("/api/auth/email/start", { email });
       setDevCode(d.devCode ?? "");
+      setCode(d.devCode ?? "");
       setWait(d.resendInS ?? 45);
       setStep("code");
       setTimeout(() => codeRef.current?.focus(), 50);
@@ -78,13 +79,15 @@ export default function EmailLogin({ next }: { next: string }) {
       <button className="back linkbtn" style={{ textAlign: "left" }} onClick={() => setStep("email")}>Back</button>
       <form onSubmit={verify} style={{ display: "flex", flexDirection: "column", flex: 1 }}>
         <p className="small bold muted" style={{ marginTop: 28 }}>Step 1 of 2</p>
-        <h1 style={{ marginTop: 6 }}>Check your email</h1>
-        <p className="muted" style={{ marginTop: 10 }}>
-          We sent a 6-digit code to <b style={{ color: "var(--text)" }}>{email}</b>. It expires in 10 minutes.
-        </p>
-        {devCode && (
+        <h1 style={{ marginTop: 6 }}>{devCode ? "Enter your code" : "Check your email"}</h1>
+        {devCode ? (
           <p className="notice warn" style={{ marginTop: 14 }}>
-            Test mode (no email service set up): your code is <b className="mono">{devCode}</b>
+            Test mode: this server has no email service set up, so no email was sent. Your code for{" "}
+            <b>{email}</b> is <b className="mono">{devCode}</b> (filled in below).
+          </p>
+        ) : (
+          <p className="muted" style={{ marginTop: 10 }}>
+            We sent a 6-digit code to <b style={{ color: "var(--text)" }}>{email}</b>. It expires in 10 minutes. Check your spam folder if it isn&apos;t there.
           </p>
         )}
         <label className="field" style={{ marginTop: 24 }}>
