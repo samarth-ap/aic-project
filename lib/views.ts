@@ -4,6 +4,7 @@
 // student views carry the student's own moments and class aggregates without names.
 // Exact counts are hidden from students in small lectures (under 10 joined).
 import {
+  attendedSessionIds,
   classesForUser,
   countEnrolled,
   eventsForActor,
@@ -111,6 +112,64 @@ export async function studentHome(user: User) {
         live_code: live.find((s) => s.class_id === c.id)?.code ?? null,
       };
     }),
+  };
+}
+
+/**
+ * The student's home dashboard: their own numbers across classes, what to study
+ * next and how lost they were in recent lectures. Only ever shown to that student.
+ */
+export async function studentDashboard(user: User) {
+  const home = await studentHome(user);
+  const actor = userActorId(user.id);
+  const mine = (await classesForUser(user.id)).filter((c) => c.role === "student");
+  const [perClass, attended, events] = await Promise.all([
+    Promise.all(mine.map(async (c) => ({ c, ss: await sessionsForClass(c.id) }))),
+    attendedSessionIds(actor),
+    eventsForActor(actor),
+  ]);
+  const lectures = perClass.flatMap(({ c, ss }) => {
+    const nos = numbers(ss);
+    return ss.filter((s) => s.ended_at && (attended.has(s.id) || events.some((e) => e.session_id === s.id))).map((s) => ({ s, c, no: nos.get(s.id)! }));
+  });
+  const inMine = new Set(lectures.map((l) => l.s.id));
+  const myEvents = events.filter((e) => inMine.has(e.session_id));
+  const recent = lectures
+    .sort((a, b) => b.s.started_at - a.s.started_at)
+    .slice(0, 6)
+    .map(({ s, c, no }) => {
+      const ev = myEvents.filter((e) => e.session_id === s.id);
+      return {
+        code: s.code,
+        title: s.title,
+        no,
+        class_short: shortName(c),
+        started_at: s.started_at,
+        lost: ev.length,
+        fuzzy: ev.filter((e) => e.status === "fuzzy").length,
+        got_it: ev.filter((e) => e.status === "got_it").length,
+      };
+    });
+  const plans = await Promise.all(mine.slice(0, 4).map((c) => studyView(user, c.code)));
+  const study_next = plans
+    .flatMap((v) => (v.cls ? v.plan.slice(0, 2).map((p) => ({ ...p, class_code: v.cls!.code, class_short: v.cls!.short })) : []))
+    .slice(0, 4);
+  const exams = plans
+    .filter((v) => v.cls && v.exam && v.days !== null && v.days !== undefined)
+    .map((v) => ({ class_short: v.cls!.short, class_code: v.cls!.code, name: v.exam!.name, days: v.days as number }))
+    .sort((a, b) => a.days - b.days);
+  return {
+    ...home,
+    first_name: (user.name || user.email.split("@")[0]).split(" ")[0],
+    totals: {
+      lectures: lectures.length,
+      lost: myEvents.length,
+      fuzzy: myEvents.filter((e) => e.status === "fuzzy").length,
+      got_it: myEvents.filter((e) => e.status === "got_it").length,
+    },
+    recent,
+    study_next,
+    next_exam: exams[0] ?? null,
   };
 }
 

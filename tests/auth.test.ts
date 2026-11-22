@@ -57,3 +57,17 @@ describe("devLoginEnabled", () => {
     expect(devLoginEnabled()).toBe(false);
   });
 });
+
+describe("emailLoginAvailable", () => {
+  it("is off on a deployment without an email service", async () => {
+    const { emailLoginAvailable } = await import("../lib/auth");
+    process.env = { ...saved, NODE_ENV: "production" } as NodeJS.ProcessEnv;
+    delete process.env.RESEND_API_KEY;
+    delete process.env.EMAIL_FROM;
+    delete process.env.DEV_LOGIN;
+    expect(emailLoginAvailable()).toBe(false);
+    process.env.RESEND_API_KEY = "re_x";
+    process.env.EMAIL_FROM = "Lost and Found <a@b.edu>";
+    expect(emailLoginAvailable()).toBe(true);
+  });
+});

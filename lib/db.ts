@@ -608,6 +608,14 @@ export async function touchPresence(sessionId: number, actor: string, now: numbe
     [sessionId, actor, Math.round(now), Math.round(now)],
   );
 }
+/** Lectures this actor was in (joined, or tapped Lost). Their own data, for their dashboard. */
+export async function attendedSessionIds(actor: string): Promise<Set<number>> {
+  const rows = await all<{ session_id: number }>(
+    "SELECT session_id FROM presence WHERE device_id = ? UNION SELECT session_id FROM confusion_events WHERE actor = ?",
+    [actor, actor],
+  );
+  return new Set(rows.map((r) => Number(r.session_id)));
+}
 export async function countPresence(sessionId: number): Promise<number> {
   return (await one<{ n: number }>("SELECT COUNT(*) AS n FROM presence WHERE session_id = ?", [sessionId]))?.n ?? 0;
 }
