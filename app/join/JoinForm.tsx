@@ -13,6 +13,31 @@ const codeFrom = (raw: string) => {
   const m = raw.match(/\/join\/([A-Za-z0-9]{6,8})/) ?? raw.match(/^\s*([A-Za-z0-9 ]{6,9})\s*$/);
   return m ? m[1].replace(/\s+/g, "").toUpperCase() : "";
 };
+/**
+ * Returns a function that reads QR codes from the current video frame.
+ * Uses the browser's built-in BarcodeDetector where it exists (Chrome on Android),
+ * otherwise decodes frames with jsQR (iPhone Safari, Firefox, desktop browsers).
+ */
+async function qrReader(v: HTMLVideoElement): Promise<() => Promise<string[]>> {
+  const Ctor = (window as unknown as { BarcodeDetector?: DetectorCtor }).BarcodeDetector;
+  if (Ctor) {
+    const det = new Ctor({ formats: ["qr_code"] });
+    return async () => (await det.detect(v)).map((h) => h.rawValue);
+  }
+  const { default: jsQR } = await import("jsqr");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  return async () => {
+    if (!v.videoWidth) return [];
+    const scale = Math.min(1, 640 / v.videoWidth); // smaller frames decode faster on phones
+    canvas.width = Math.round(v.videoWidth * scale);
+    canvas.height = Math.round(v.videoHeight * scale);
+    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+    return hit ? [hit.data] : [];
+  };
+}
 const spaced = (c: string) => (c.length > 3 ? `${c.slice(0, 3)} ${c.slice(3)}` : c);
 
 export default function JoinForm({ initial = "", initialError = "", signedInAs, standalone = true }: { initial?: string; initialError?: string; signedInAs: string; standalone?: boolean }) {
@@ -22,23 +47,25 @@ export default function JoinForm({ initial = "", initialError = "", signedInAs, 
   const [camErr, setCamErr] = useState("");
   const video = useRef<HTMLVideoElement>(null);
   const form = useRef<HTMLFormElement>(null);
-  const Ctor = typeof window !== "undefined" ? (window as unknown as { BarcodeDetector?: DetectorCtor }).BarcodeDetector : undefined;
+  // Whether this browser can open the camera at all (needs https or localhost). Checked after
+  // the first render so the server and the browser draw the same page.
+  const [canScan, setCanScan] = useState(false);
+  useEffect(() => setCanScan(Boolean(navigator.mediaDevices?.getUserMedia)), []);
 
   useEffect(() => {
-    if (!scanning || !Ctor) return;
+    if (!scanning) return;
     let stream: MediaStream | null = null;
     let stop = false;
     (async () => {
       try {
         // Camera permission is asked only now, when the student chooses to scan.
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        if (!video.current) return;
+        if (!video.current || stop) return;
         video.current.srcObject = stream;
         await video.current.play();
-        const det = new Ctor({ formats: ["qr_code"] });
+        const read = await qrReader(video.current);
         while (!stop) {
-          const hits = await det.detect(video.current).catch(() => []);
-          const c = hits.map((h) => codeFrom(h.rawValue)).find(Boolean);
+          const c = (await read().catch(() => [] as string[])).map(codeFrom).find(Boolean);
           if (c) {
             setCode(spaced(c));
             setScanning(false);
@@ -47,8 +74,9 @@ export default function JoinForm({ initial = "", initialError = "", signedInAs, 
           }
           await new Promise((r) => setTimeout(r, 250));
         }
-      } catch {
-        setCamErr("Couldn't open the camera. Type the code instead.");
+      } catch (e) {
+        const denied = (e as Error)?.name === "NotAllowedError";
+        setCamErr(denied ? "Camera access was blocked. Allow it in your browser settings, or type the code." : "Couldn't open the camera. Type the code instead.");
         setScanning(false);
       }
     })();
@@ -56,7 +84,7 @@ export default function JoinForm({ initial = "", initialError = "", signedInAs, 
       stop = true;
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [scanning, Ctor]);
+  }, [scanning]);
 
   return (
     <form ref={form} action={action} style={{ display: "flex", flexDirection: "column", flex: 1 }}>
@@ -77,7 +105,7 @@ export default function JoinForm({ initial = "", initialError = "", signedInAs, 
         <div style={{ position: "absolute", bottom: 20, left: 0, right: 0, textAlign: "center", color: "#e3e0ff", fontSize: "0.95rem" }}>
           {scanning ? (
             "Point the camera at the QR code"
-          ) : Ctor ? (
+          ) : canScan ? (
             <button type="button" className="btn gold sm" onClick={() => { setCamErr(""); setScanning(true); }}>Scan the QR code</button>
           ) : (
             "Point your phone's camera app at the QR code"
