@@ -48,6 +48,12 @@ export const emailConfigured = () => Boolean(process.env.RESEND_API_KEY && proce
 export const devLoginEnabled = () =>
   process.env.DEV_LOGIN === "1" || (process.env.DEV_LOGIN !== "0" && !emailConfigured() && process.env.NODE_ENV !== "production");
 
+/**
+ * Email-code sign-in works only with an email service (Resend) or in dev mode.
+ * When it can't send codes (e.g. a deployment without RESEND_API_KEY), the app hides it.
+ */
+export const emailLoginAvailable = () => emailConfigured() || devLoginEnabled();
+
 const secure = () => process.env.NODE_ENV === "production";
 
 // ---------- current user ----------

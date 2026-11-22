@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { appleConfigured, currentUser, googleConfigured, safeNext } from "@/lib/auth";
+import { appleConfigured, currentUser, emailLoginAvailable, googleConfigured, safeNext } from "@/lib/auth";
 import { IconBulb } from "@/components/icons";
 
 // Welcome / sign-in.
@@ -9,6 +9,11 @@ export default async function Welcome({ searchParams }: { searchParams: Promise<
   const next = safeNext(sp.next);
   if (await currentUser()) redirect(next);
   const q = `next=${encodeURIComponent(next)}`;
+  const email = emailLoginAvailable();
+  const google = googleConfigured();
+  // Professors sign in the same way, then land on their classes (or "New class").
+  const teachNext = `next=${encodeURIComponent("/teach")}`;
+  const profHref = email ? `/login?${teachNext}` : google ? `/api/auth/google?${teachNext}` : `/?${teachNext}`;
   return (
     <div className="welcome">
       <main className="app no-tabs">
@@ -23,7 +28,7 @@ export default async function Welcome({ searchParams }: { searchParams: Promise<
         {sp.error && <p className="notice warn" style={{ marginTop: 20 }}>{sp.error}</p>}
         <div style={{ flex: 1, minHeight: 60 }} />
         <div className="stack">
-          {googleConfigured() && (
+          {google && (
             <a className="btn light block lg" href={`/api/auth/google?${q}`}>
               Continue with Google
             </a>
@@ -33,15 +38,20 @@ export default async function Welcome({ searchParams }: { searchParams: Promise<
               Continue with Apple
             </a>
           )}
-          <Link className="btn outline-light block lg" href={`/login?${q}`}>
-            Use my email
-          </Link>
+          {email && (
+            <Link className="btn outline-light block lg" href={`/login?${q}`}>
+              Use my email
+            </Link>
+          )}
+          {!email && !google && !appleConfigured() && (
+            <p className="notice warn">Sign-in isn&apos;t set up on this server yet (add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).</p>
+          )}
         </div>
         <p className="center small" style={{ color: "#cfcaf5", marginTop: 22, lineHeight: 1.6 }}>
-          We email you a 6-digit code. No password.
+          {email ? "We email you a 6-digit code. No password." : "Sign in with your UW Google account."}
           <br />
           I&apos;m a professor ·{" "}
-          <Link href={`/login?next=${encodeURIComponent("/teach")}`} style={{ color: "var(--gold)", textDecoration: "underline" }}>
+          <Link href={profHref} style={{ color: "var(--gold)", textDecoration: "underline" }}>
             Set up a class
           </Link>
         </p>
