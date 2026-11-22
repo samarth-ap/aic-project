@@ -37,15 +37,34 @@ export default function ProfLive({ code, classCode, title, sub, nowMs, slides, l
   const [mic, setMic] = useState<"off" | "starting" | "on" | "denied">("off");
   const [micName, setMicName] = useState("");
   const [level, setLevel] = useState(0);
+  const [pending, setPending] = useState(0);
   const [captions, setCaptions] = useState<"off" | "on" | "unsupported" | "error">("off");
   const [interim, setInterim] = useState("");
   const [slideName, setSlideName] = useState(slides);
   const [stopping, setStopping] = useState(false);
-  // The microphone is used only for live speech-to-text (for the AI tutor). No audio is
-  // saved or uploaded: the university's lecture capture (Panopto) keeps the recording.
-  const stream = useRef<MediaStream | null>(null);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const queue = useRef<{ seq: number; blob: Blob }[]>([]);
+  const run = useRef({ id: crypto.randomUUID(), start: 0, seq: 0 });
   const rec = useRef<Recognizer | null>(null);
   const wantCaptions = useRef(false);
+
+  // ---- upload queue: chunks wait here until the server has them (network drops, laptop sleep) ----
+  const flush = useCallback(async () => {
+    while (queue.current.length) {
+      const c = queue.current[0];
+      const r = run.current;
+      const ok = await fetch(`/api/lectures/${code}/audio?run=${r.id}&start=${Math.round(r.start)}&seq=${c.seq}`, {
+        method: "POST",
+        headers: { "content-type": c.blob.type || "audio/webm" },
+        body: c.blob,
+      })
+        .then((x) => x.ok)
+        .catch(() => false);
+      if (!ok) break;
+      queue.current.shift();
+    }
+    setPending(queue.current.length);
+  }, [code]);
 
   const startCaptions = useCallback(() => {
     const Ctor = (window as unknown as { SpeechRecognition?: RecognizerCtor; webkitSpeechRecognition?: RecognizerCtor }).SpeechRecognition ??
@@ -89,48 +108,63 @@ export default function ProfLive({ code, classCode, title, sub, nowMs, slides, l
   const startMic = useCallback(async () => {
     setMic("starting");
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      stream.current = s;
-      setMicName(s.getAudioTracks()[0]?.label?.replace(/\(.*\)/, "").trim() || "Microphone");
-      // Level meter, so the professor can see the mic is picking them up. Nothing is recorded.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      setMicName(stream.getAudioTracks()[0]?.label?.replace(/\(.*\)/, "").trim() || "Microphone");
+      // Level meter
       const ctx = new AudioContext();
       const an = ctx.createAnalyser();
       an.fftSize = 512;
-      ctx.createMediaStreamSource(s).connect(an);
+      ctx.createMediaStreamSource(stream).connect(an);
       const buf = new Uint8Array(an.fftSize);
       const loop = () => {
         an.getByteTimeDomainData(buf);
         let peak = 0;
         for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
         setLevel(Math.min(1, peak / 70));
-        if (s.active) requestAnimationFrame(loop);
-        else void ctx.close();
+        if (recorder.current?.state !== "inactive") requestAnimationFrame(loop);
       };
+      // Recorder: ~10 s chunks, low bitrate speech.
+      const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((m) => MediaRecorder.isTypeSupported(m));
+      const mr = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 32_000 });
+      run.current = { id: crypto.randomUUID(), start: now(), seq: 0 };
+      mr.ondataavailable = (e) => {
+        if (!e.data.size) return;
+        queue.current.push({ seq: run.current.seq++, blob: e.data });
+        setPending(queue.current.length);
+        void flush();
+      };
+      mr.start(10_000);
+      recorder.current = mr;
       requestAnimationFrame(loop);
       setMic("on");
       startCaptions();
     } catch {
       setMic("denied");
     }
-  }, [startCaptions]);
+  }, [flush, now, startCaptions]);
 
   useEffect(() => {
     void startMic();
-    // Keep the laptop awake while the lecture is live, so the transcript keeps going.
+    // Keep the laptop awake while recording.
     let lock: { release(): Promise<void> } | null = null;
     (navigator as unknown as { wakeLock?: { request(t: string): Promise<{ release(): Promise<void> }> } }).wakeLock?.request("screen").then((l) => (lock = l)).catch(() => {});
     const warn = (e: BeforeUnloadEvent) => {
-      if (wantCaptions.current) e.preventDefault();
+      if (recorder.current?.state === "recording") e.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
+    window.addEventListener("online", flush);
+    const retry = setInterval(flush, 15_000);
     return () => {
       window.removeEventListener("beforeunload", warn);
+      window.removeEventListener("online", flush);
+      clearInterval(retry);
       wantCaptions.current = false;
       rec.current?.stop();
-      stream.current?.getTracks().forEach((t) => t.stop());
+      if (recorder.current?.state !== "inactive") recorder.current?.stop();
+      recorder.current?.stream.getTracks().forEach((t) => t.stop());
       void lock?.release();
     };
-  }, [startMic]);
+  }, [startMic, flush]);
 
   useEffect(() => {
     let alive = true;
@@ -151,11 +185,23 @@ export default function ProfLive({ code, classCode, title, sub, nowMs, slides, l
   }, [code]);
 
   async function stop() {
-    if (!confirm("Stop the lecture? The live transcript ends and students' Lost button closes.")) return;
+    if (!confirm("Stop the lecture? Recording ends and students' Lost button closes.")) return;
     setStopping(true);
     wantCaptions.current = false;
     rec.current?.stop();
-    stream.current?.getTracks().forEach((t) => t.stop());
+    const mr = recorder.current;
+    if (mr && mr.state !== "inactive") {
+      await new Promise<void>((res) => {
+        mr.addEventListener("stop", () => res(), { once: true });
+        mr.stop();
+      });
+    }
+    mr?.stream.getTracks().forEach((t) => t.stop());
+    // Give the last chunk a moment to upload.
+    for (let i = 0; i < 20 && queue.current.length; i++) {
+      await flush();
+      if (queue.current.length) await new Promise((r) => setTimeout(r, 500));
+    }
     await stopLecture(code);
   }
 
@@ -178,7 +224,7 @@ export default function ProfLive({ code, classCode, title, sub, nowMs, slides, l
         <div className="row" style={{ gap: 18 }}>
           <span className="bold">
             <span className="dot" style={{ marginRight: 8, opacity: mic === "on" ? 1 : 0.4 }} />
-            {mic === "on" ? "Live · transcribing" : mic === "denied" ? "Microphone blocked" : "Starting…"}
+            {mic === "on" ? "Recording" : mic === "denied" ? "Microphone blocked" : "Starting…"}
             <span className="muted mono" style={{ marginLeft: 8 }}>{fmtClock(now())}</span>
           </span>
           <button className="btn red" onClick={stop} disabled={stopping}>{stopping ? "Saving…" : "Stop lecture"}</button>
@@ -195,7 +241,7 @@ export default function ProfLive({ code, classCode, title, sub, nowMs, slides, l
             <h2>Scan to join in the Lost and Found app</h2>
             <p className="muted" style={{ marginTop: 14 }}>or enter the class code</p>
             <p className="join-code mono">{spacedCode(classCode)}</p>
-            <p className="muted" style={{ marginTop: 16 }}>This lecture is transcribed live so the AI tutor knows what was just said. No audio is saved.</p>
+            <p className="muted" style={{ marginTop: 16 }}>This lecture is being recorded and transcribed. Audio is kept until the end of term.</p>
           </div>
         </div>
         <div className="stack" style={{ marginTop: 0 }}>
@@ -249,6 +295,7 @@ export default function ProfLive({ code, classCode, title, sub, nowMs, slides, l
               {captions === "on" ? `on (${live?.transcript_segments ?? 0} lines)` : captions === "unsupported" ? "needs Chrome, Edge or Safari" : captions === "error" ? "blocked by the browser" : "starting"}
             </p>
             {interim && <p className="small" style={{ marginTop: 6, opacity: 0.7 }}>{interim}</p>}
+            {pending > 1 && <p className="small" style={{ color: "var(--gold)", marginTop: 8 }}>Offline: {pending} audio chunks saved, uploading when the connection is back.</p>}
           </div>
         </div>
       </div>

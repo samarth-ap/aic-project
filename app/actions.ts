@@ -34,6 +34,7 @@ import {
   type Prefs,
 } from "@/lib/db";
 import { processLecture } from "@/lib/analysis/lecture";
+import { makeTerm } from "@/lib/format";
 
 async function me() {
   const u = await currentUser();
@@ -143,7 +144,7 @@ export async function newClass(_: unknown, f: FormData): Promise<{ error?: strin
   const u = await me();
   const short = str(f, "short", 30);
   const long = str(f, "long", 80);
-  const term = str(f, "term", 40);
+  const term = makeTerm(str(f, "quarter", 10), str(f, "year", 4));
   if (!short) return { error: "Give the class a course code, like CSE 143." };
   if (u.kind !== "professor") await setUserKind(u.id, "professor");
   const c = await createClass(long ? `${short} · ${long}` : short, term, u.id, dateMs(str(f, "audio_delete_on", 12)));
@@ -157,7 +158,7 @@ export async function saveClassSettings(code: string, _: unknown, f: FormData): 
   const long = str(f, "long", 80);
   await updateClass(c.id, {
     name: long ? `${short} · ${long}` : short,
-    term: str(f, "term", 40),
+    term: makeTerm(str(f, "quarter", 10), str(f, "year", 4)),
     exam_name: str(f, "exam_name", 40),
     exam_date: dateMs(str(f, "exam_date", 12)),
     audio_delete_on: dateMs(str(f, "audio_delete_on", 12)),

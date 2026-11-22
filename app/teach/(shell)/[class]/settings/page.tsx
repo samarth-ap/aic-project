@@ -22,7 +22,8 @@ export default async function Settings({ params }: { params: Promise<{ class: st
   return (
     <div style={{ maxWidth: 720 }}>
       <p className="crumb">{shortName(c)}</p>
-      <h1>Class settings</h1>
+      <h1>Edit class</h1>
+      <p className="muted" style={{ marginTop: 6 }}>Change the name, quarter, exam date and tutor rules. Students see the new details right away; the class code stays the same.</p>
       <SettingsForm
         code={c.code}
         initial={{ short: shortName(c), long: longName(c), term: c.term, exam_name: c.exam_name, exam_date: iso(c.exam_date), audio_delete_on: iso(c.audio_delete_on), graded_notes: c.graded_notes }}

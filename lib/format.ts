@@ -46,3 +46,32 @@ export const initials = (name: string) =>
     .slice(0, 2)
     .map((w) => w[0]!.toUpperCase())
     .join("") || "?";
+
+// ---------- quarters ----------
+export const QUARTERS = ["Fall", "Winter", "Spring", "Summer"] as const;
+export type Quarter = (typeof QUARTERS)[number];
+
+/** The quarter a date falls in (UW calendar: Winter Jan–Mar, Spring Apr–Jun, Summer Jul–Aug, Fall Sep–Dec). */
+export function currentQuarter(now = new Date()): { quarter: Quarter; year: number } {
+  const m = now.getMonth();
+  const quarter: Quarter = m <= 2 ? "Winter" : m <= 5 ? "Spring" : m <= 7 ? "Summer" : "Fall";
+  return { quarter, year: now.getFullYear() };
+}
+
+/** Reads a stored term like "Fall 2026" or "Autumn 2026" back into a quarter and year. */
+export function parseTerm(term: string | null | undefined): { quarter: Quarter | ""; year: number | null } {
+  const t = String(term ?? "");
+  const q = /\b(fall|autumn|au|winter|wi|spring|sp|summer|su)\b/i.exec(t)?.[1].toLowerCase() ?? "";
+  const quarter: Quarter | "" =
+    q === "fall" || q === "autumn" || q === "au" ? "Fall" : q.startsWith("wi") ? "Winter" : q.startsWith("sp") ? "Spring" : q.startsWith("su") ? "Summer" : "";
+  const y = /\b(20\d\d)\b/.exec(t)?.[1];
+  return { quarter, year: y ? Number(y) : null };
+}
+
+/** Builds the stored term from the dropdowns; unknown values are dropped. */
+export function makeTerm(quarter: string, year: string): string {
+  const q = QUARTERS.find((x) => x === quarter);
+  if (!q) return "";
+  const y = /^20\d\d$/.test(year) ? year : "";
+  return y ? `${q} ${y}` : q;
+}

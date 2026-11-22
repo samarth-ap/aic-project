@@ -64,11 +64,11 @@ export function StartLecture({ classCode, nextNo }: { classCode: string; nextNo:
               <input className="input" type="file" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" onChange={(e) => setFile(e.target.files?.[0] ?? null)} style={{ paddingTop: 13 }} />
               <p className="small muted" style={{ marginTop: 6 }}>PDF, .txt or .md. The tutor uses them to explain what you&apos;re teaching.</p>
             </label>
-            <p className="small muted">Next, your browser asks to use the microphone. It only turns your speech into a live transcript for the AI tutor; no audio is saved, so keep using Panopto to record.</p>
+            <p className="small muted">Next, your browser asks to use the microphone. The lecture is recorded and transcribed; students see a notice when they join.</p>
             {err && <p className="error">{err}</p>}
             <div className="row" style={{ justifyContent: "flex-end" }}>
               <button type="button" className="btn text" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
-              <button className="btn" disabled={busy || !title.trim()}>{busy ? "Starting…" : "Start lecture"}</button>
+              <button className="btn" disabled={busy || !title.trim()}>{busy ? "Starting…" : "Start recording"}</button>
             </div>
           </form>
         </div>

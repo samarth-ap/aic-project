@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useActionState, useState, useTransition } from "react";
 import { ConfusionCurve, PlayButton, PlayerProvider, SeekLink, TimeReadout, TranscriptList } from "@/components/Player";
-import { fmtClock, fmtDay, pct } from "@/lib/format";
+import { fmtClock, fmtDay, fmtShortDate, pct } from "@/lib/format";
 import { addClarification, attachLink, dismissHotspot, publishHotspot, removeLecture, reprocessLecture, saveDraft, unpublishHotspot } from "@/app/actions";
 import type { staffLecture } from "@/lib/views";
 
@@ -187,7 +187,7 @@ function Recording({ v, hotspots }: { v: V; hotspots: H[] }) {
         <div className="card" style={{ padding: 24 }}>
           <div className="between">
             <h3>Transcript</h3>
-            <span className="small muted">Click a line to jump there</span>
+            <span className="small muted">Click a line to play from there</span>
           </div>
           <div style={{ marginTop: 12 }}>
             <TranscriptList lines={v.transcript} hot={hotspots.map((h) => ({ start_ms: h.start_ms, end_ms: h.end_ms, label: `${h.students} students lost` }))} />
@@ -205,7 +205,7 @@ function Recording({ v, hotspots }: { v: V; hotspots: H[] }) {
             {!hotspots.length && <p className="small muted">No hotspots.</p>}
           </div>
           <p className="small muted" style={{ marginTop: 18 }}>
-            No audio is saved by Lost and Found; the class recording stays on Panopto. The transcript stays here.
+            {v.cls.audio_delete_on ? `Audio is kept until ${fmtShortDate(v.cls.audio_delete_on)}, then deleted. The transcript stays.` : "Set an audio deletion date in class settings. The transcript stays."}
           </p>
         </div>
       </div>

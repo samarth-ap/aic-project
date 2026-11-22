@@ -15,7 +15,7 @@ export default function Sidebar({ classes, name }: { classes: { code: string; sh
           {current === c.code && (
             <>
               <Link className={`item sub ${path.endsWith("/trends") ? "on" : ""}`} href={`/teach/${c.code}/trends`}>Term trends</Link>
-              <Link className={`item sub ${path.endsWith("/settings") ? "on" : ""}`} href={`/teach/${c.code}/settings`}>Class settings</Link>
+              <Link className={`item sub ${path.endsWith("/settings") ? "on" : ""}`} href={`/teach/${c.code}/settings`}>Edit class</Link>
             </>
           )}
         </div>
