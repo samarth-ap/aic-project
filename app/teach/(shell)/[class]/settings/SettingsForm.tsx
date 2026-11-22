@@ -17,11 +17,6 @@ export default function SettingsForm({ code, initial }: { code: string; initial:
       </div>
       <p className="small muted" style={{ marginTop: 4 }}>Students&apos; study plans count down to this date. If you leave it empty, students can set their own.</p>
       <label className="field">
-        <span>End-of-term audio deletion</span>
-        <input className="input" type="date" name="audio_delete_on" defaultValue={initial.audio_delete_on} />
-        <p className="small muted" style={{ marginTop: 6 }}>Lecture audio is deleted on this date. Transcripts, markers and chats stay.</p>
-      </label>
-      <label className="field">
         <span>Graded work the tutor must not answer</span>
         <textarea className="input" name="graded_notes" defaultValue={initial.graded_notes} placeholder="e.g. Homework 5 (recursive maze solver), the take-home quiz on linked lists" />
         <p className="small muted" style={{ marginTop: 6 }}>The tutor gives hints or a similar example instead of answers for anything listed here.</p>

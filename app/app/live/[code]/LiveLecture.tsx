@@ -169,7 +169,7 @@ export default function LiveLecture({ code, title, sub, classCode, nowMs, dark }
             </div>
           </div>
           <p className="anon-note">Your professor sees how many students were lost, never who.</p>
-          <p className="anon-note tiny" style={{ marginTop: 8, opacity: 0.8 }}>This lecture is being recorded and transcribed. Audio is kept until the end of term.</p>
+          <p className="anon-note tiny" style={{ marginTop: 8, opacity: 0.8 }}>This lecture is transcribed live so the tutor knows what was just said. No audio is saved.</p>
           {note && <p className="notice dark" style={{ marginTop: 16 }} role="status">{note}</p>}
         </div>
         <button className="moments-bar" onClick={() => moments.length && setList(true)} style={{ border: 0, cursor: moments.length ? "pointer" : "default", textAlign: "left", width: "100%" }}>

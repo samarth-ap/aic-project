@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/server";
 import { staffClass } from "@/lib/views";
-import { fmtDay, fmtShortDate, pct, spacedCode } from "@/lib/format";
+import { fmtDay, pct, spacedCode } from "@/lib/format";
 import { ShowQr, StartLecture } from "./ClassBits";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export default async function ProfClass({ params }: { params: Promise<{ class: s
         <div>
           <h1>{c.name}</h1>
           <p className="muted" style={{ marginTop: 6 }}>
-            {[c.term, `${v.enrolled} student${v.enrolled === 1 ? "" : "s"} enrolled`, c.audio_delete_on && `audio deleted on ${fmtShortDate(c.audio_delete_on)}`].filter(Boolean).join(" · ")}
+            {[c.term, `${v.enrolled} student${v.enrolled === 1 ? "" : "s"} enrolled`].filter(Boolean).join(" · ")}
           </p>
         </div>
         {v.live ? (

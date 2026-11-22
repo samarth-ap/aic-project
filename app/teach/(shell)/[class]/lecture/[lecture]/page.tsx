@@ -28,7 +28,7 @@ export default async function ProfLecture({ params, searchParams }: { params: Pr
         </div>
         <nav className="segmented" aria-label="Lecture views">
           <Link className={tab === "insights" ? "on" : ""} href={base}>Insights</Link>
-          <Link className={tab === "recording" ? "on" : ""} href={`${base}?tab=recording`}>Recording</Link>
+          <Link className={tab === "recording" ? "on" : ""} href={`${base}?tab=recording`}>Transcript</Link>
           <Link className={tab === "clarifications" ? "on" : ""} href={`${base}?tab=clarifications`}>Clarifications</Link>
         </nav>
       </div>

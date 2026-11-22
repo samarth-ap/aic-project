@@ -121,7 +121,7 @@ export default function LectureReplay({ v, start }: { v: V; start: number }) {
 
 function NoAudioNote({ deleteOn }: { deleteOn: number | null }) {
   const p = usePlayer()!;
-  if (p.hasAudio === false) return <p className="tiny muted" style={{ marginTop: 10 }}>No recording kept for this lecture. The transcript stays.</p>;
+  if (p.hasAudio === false) return <p className="tiny muted" style={{ marginTop: 10 }}>No audio is saved by Lost and Found; your class recording is on Panopto. The transcript stays here.</p>;
   if (deleteOn) return <p className="tiny muted" style={{ marginTop: 10 }}>Audio is kept until {fmtShortDate(deleteOn)}, then deleted. The transcript stays.</p>;
   return null;
 }
