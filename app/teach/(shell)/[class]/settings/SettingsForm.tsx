@@ -3,7 +3,7 @@ import { useActionState, useTransition } from "react";
 import { newClassCode, removeStudent, saveClassSettings } from "@/app/actions";
 import TermPicker from "@/components/TermPicker";
 
-export default function SettingsForm({ code, initial }: { code: string; initial: Record<string, string> }) {
+export default function SettingsForm({ code, initial, canSetGuestSignIn }: { code: string; initial: Record<string, string>; canSetGuestSignIn: boolean }) {
   const [state, action, pending] = useActionState(saveClassSettings.bind(null, code), {});
   const [, startSave] = useTransition();
   return (
@@ -20,6 +20,16 @@ export default function SettingsForm({ code, initial }: { code: string; initial:
         <label className="field"><span>Course title</span><input className="input" name="long" defaultValue={initial.long} /></label>
       </div>
       <TermPicker key={initial.term} term={initial.term} />
+      {canSetGuestSignIn && (
+        <label className="field">
+          <span>Guest email sign-in</span>
+          <select className="input" name="allow_guests" defaultValue={initial.allow_guests}>
+            <option value="0">Use site email rules</option>
+            <option value="1">Allow guest emails</option>
+          </select>
+          <p className="small muted" style={{ marginTop: 6 }}>Guests verify their email and use this class&apos;s QR code or invite link to join as students.</p>
+        </label>
+      )}
       <div className="grid2">
         <label className="field"><span>Next exam</span><input className="input" name="exam_name" defaultValue={initial.exam_name} placeholder="Midterm" /></label>
         <label className="field"><span>Exam date</span><input className="input" type="date" name="exam_date" defaultValue={initial.exam_date} /></label>

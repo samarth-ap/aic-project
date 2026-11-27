@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { canSetClassGuestSignIn } from "@/lib/access";
 import { getClassByCode, getRole, roster } from "@/lib/db";
 import { isStaffRole } from "@/lib/auth";
 import { requireUser } from "@/lib/server";
@@ -26,7 +27,8 @@ export default async function Settings({ params }: { params: Promise<{ class: st
       <p className="muted" style={{ marginTop: 6 }}>Change the name, quarter, exam date and tutor rules. Students see the new details right away; the class code stays the same.</p>
       <SettingsForm
         code={c.code}
-        initial={{ short: shortName(c), long: longName(c), term: c.term, exam_name: c.exam_name, exam_date: iso(c.exam_date), audio_delete_on: iso(c.audio_delete_on), graded_notes: c.graded_notes }}
+        initial={{ short: shortName(c), long: longName(c), term: c.term, exam_name: c.exam_name, exam_date: iso(c.exam_date), audio_delete_on: iso(c.audio_delete_on), graded_notes: c.graded_notes, allow_guests: c.allow_guests ? "1" : "0" }}
+        canSetGuestSignIn={canSetClassGuestSignIn(role)}
       />
       <div className="card" style={{ marginTop: 20, padding: 24 }}>
         <h3>Join codes</h3>

@@ -30,7 +30,7 @@ export default function EmailLogin({ next }: { next: string }) {
     setBusy(true);
     setErr("");
     try {
-      const d = await post("/api/auth/email/start", { email });
+      const d = await post("/api/auth/email/start", { email, next });
       setDevCode(d.devCode ?? "");
       setCode(d.devCode ?? "");
       setWait(d.resendInS ?? 45);
@@ -64,7 +64,7 @@ export default function EmailLogin({ next }: { next: string }) {
           <h1 style={{ marginTop: 6 }}>{next.startsWith("/teach") ? "Set up your class" : "Sign in with email"}</h1>
           <p className="muted" style={{ marginTop: 10 }}>We&apos;ll email you a 6-digit code. No password to remember.</p>
           <label className="field" style={{ marginTop: 28 }}>
-            <span>Your university email</span>
+            <span>Your email address</span>
             <input className="input" type="email" inputMode="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@uw.edu" autoFocus />
           </label>
           {err && <p className="error" style={{ marginTop: 10 }}>{err}</p>}

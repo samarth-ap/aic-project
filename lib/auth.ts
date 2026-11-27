@@ -5,10 +5,15 @@
 // Sessions last 60 days, so people stay signed in on their phone.
 import crypto from "node:crypto";
 import { cookies } from "next/headers";
+import { allowedDomains, classEmailAllowed, classGuestSignInEnabled, emailAllowed, validEmail } from "./access";
 import {
+  addMembership,
+  classesForUser,
   createAuthSession,
   deleteAuthSession,
+  getClassByCode,
   getRole,
+  getUserByEmail,
   upsertUser,
   userActorId,
   userForToken,
@@ -21,19 +26,7 @@ export const SESSION_COOKIE = "lf_session";
 const STATE_COOKIE = "lf_oauth";
 const SESSION_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 
-/** Email domains allowed to sign in (ALLOWED_EMAIL_DOMAINS, default uw.edu; "*" allows any). */
-export const allowedDomains = () =>
-  (process.env.ALLOWED_EMAIL_DOMAINS ?? "uw.edu")
-    .split(",")
-    .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
-    .filter(Boolean);
-
-export const emailAllowed = (email: string) => {
-  const domains = allowedDomains();
-  if (domains.includes("*")) return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
-  const domain = email.toLowerCase().split("@")[1] ?? "";
-  return domains.includes(domain);
-};
+export { allowedDomains, emailAllowed } from "./access";
 
 export const googleConfigured = () => Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 export const appleConfigured = () =>
@@ -58,6 +51,10 @@ const secure = () => process.env.NODE_ENV === "production";
 
 // ---------- current user ----------
 
+async function accountMaySignIn(user: User): Promise<boolean> {
+  return emailAllowed(user.email) || (classGuestSignInEnabled() && (await classesForUser(user.id)).length > 0);
+}
+
 /** The signed-in user, or null. Rejects cross-site writes (CSRF) for cookie-authenticated requests. */
 export async function currentUser(req?: Request): Promise<User | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -66,10 +63,12 @@ export async function currentUser(req?: Request): Promise<User | null> {
     const origin = req.headers.get("origin");
     if (origin && new URL(origin).host !== new URL(req.url).host) return null;
   }
-  return userForToken(token).catch(() => null);
+  return userForToken(token)
+    .then(async (user) => (user && await accountMaySignIn(user) ? user : null))
+    .catch(() => null);
 }
 
-export async function signIn(user: User) {
+async function signIn(user: User) {
   const token = await createAuthSession(user.id, SESSION_TTL_MS);
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -88,10 +87,46 @@ export async function signOut() {
 }
 
 /** Only same-site relative paths, so the login can't be used as an open redirect. */
-export const safeNext = (next: string | null | undefined) =>
-  next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/home";
+export const safeNext = (next: unknown) =>
+  typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/home";
 
 export class LoginError extends Error {}
+
+export function emailSignInMessage(): string {
+  const university = `Use your university email (${allowedDomains().map((domain) => `@${domain}`).join(" or ")})`;
+  return classGuestSignInEnabled()
+    ? `${university} or open an invite link for a class that allows guest email sign-in.`
+    : `${university}.`;
+}
+
+async function emailSignInAccess(email: string, next: unknown): Promise<{ classId: number | null } | null> {
+  if (emailAllowed(email)) return { classId: null };
+  if (!classGuestSignInEnabled() || !validEmail(email)) return null;
+
+  const code = /^\/join\/([a-z0-9]{6})\/?(?:[?#]|$)/i.exec(safeNext(next))?.[1];
+  const invited = code ? await getClassByCode(code) : undefined;
+  if (invited && classEmailAllowed(email, invited.allow_guests, "student")) return { classId: invited.id };
+
+  const user = await getUserByEmail(email);
+  return user && await accountMaySignIn(user) ? { classId: null } : null;
+}
+
+export async function emailSignInAllowed(email: string, next: unknown): Promise<boolean> {
+  return Boolean(await emailSignInAccess(email, next));
+}
+
+/** Called only after the email code or OAuth provider has verified the address. */
+export async function signInVerifiedEmail(email: string, next: unknown, name = "", picture = "") {
+  const access = await emailSignInAccess(email, next);
+  if (!access) throw new LoginError(emailSignInMessage());
+
+  const user = await upsertUser(email, name, picture);
+  if (access.classId !== null && !(await addMembership(access.classId, user.id, "student"))) {
+    throw new LoginError(emailSignInMessage());
+  }
+  if (!(await accountMaySignIn(user))) throw new LoginError(emailSignInMessage());
+  await signIn(user);
+}
 
 // ---------- email code ----------
 
@@ -148,10 +183,9 @@ async function takeState(got: string | null): Promise<string> {
   return expected.next;
 }
 
-async function finishWithEmail(email: string | undefined, verified: boolean, name: string, picture = ""): Promise<void> {
+async function finishWithEmail(email: string | undefined, verified: boolean, next: string, name: string, picture = ""): Promise<void> {
   if (!email || !verified) throw new LoginError("Your account has no verified email.");
-  if (!emailAllowed(email)) throw new LoginError(`Please use your university account (${allowedDomains().map((d) => "@" + d).join(" or ")}).`);
-  await signIn(await upsertUser(email, name, picture));
+  await signInVerifiedEmail(email, next, name, picture);
 }
 
 export async function googleAuthUrl(req: Request, next: string): Promise<string> {
@@ -164,7 +198,7 @@ export async function googleAuthUrl(req: Request, next: string): Promise<string>
     scope: "openid email profile",
     state,
     prompt: "select_account",
-    ...(domains.length === 1 && domains[0] !== "*" ? { hd: domains[0] } : {}),
+    ...(!classGuestSignInEnabled() && domains.length === 1 && domains[0] !== "*" ? { hd: domains[0] } : {}),
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
@@ -191,7 +225,7 @@ export async function finishGoogleLogin(req: Request): Promise<string> {
   const infoRes = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { authorization: `Bearer ${access_token}` } });
   if (!infoRes.ok) throw new LoginError("Couldn't read your Google profile. Please try again.");
   const info = (await infoRes.json()) as { email?: string; email_verified?: boolean; name?: string; picture?: string };
-  await finishWithEmail(info.email, Boolean(info.email_verified), info.name ?? "", info.picture ?? "");
+  await finishWithEmail(info.email, Boolean(info.email_verified), next, info.name ?? "", info.picture ?? "");
   return next;
 }
 
@@ -247,7 +281,7 @@ export async function finishAppleLogin(req: Request): Promise<string> {
     const u = JSON.parse(String(form.get("user") ?? "{}"));
     name = [u?.name?.firstName, u?.name?.lastName].filter(Boolean).join(" ");
   } catch {}
-  await finishWithEmail(claims.email, claims.email_verified === true || claims.email_verified === "true", name);
+  await finishWithEmail(claims.email, claims.email_verified === true || claims.email_verified === "true", next, name);
   return next;
 }
 

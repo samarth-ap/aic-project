@@ -123,11 +123,18 @@ See `.env.example`. The main ones:
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google sign-in |
 | `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | Sign in with Apple |
 | `ALLOWED_EMAIL_DOMAINS` | Who may sign in (default `uw.edu`; `*` for anyone) |
+| `ENABLE_CLASS_GUEST_EMAILS` | Set to `1` to let instructors allow guest email sign-in per class. Defaults to off. |
 | `PUBLIC_URL` | What the QR code links to (a tunnel or your laptop's IP when testing with phones) |
 
 **Google sign-in:** Google Cloud console → OAuth consent screen (External; scopes `openid email profile`) → Credentials → OAuth client (Web). Redirect URIs: `https://<your-app>/api/auth/callback/google` and `http://localhost:3000/api/auth/callback/google`.
 
 **Apple sign-in:** in the Apple Developer account create a Services ID (that's `APPLE_CLIENT_ID`) with the return URL `https://<your-app>/api/auth/callback/apple`, and a Sign in with Apple key (`APPLE_KEY_ID`, its `.p8` contents as `APPLE_PRIVATE_KEY`). Apple requires https, so test it on the deployed app.
+
+### Test with a guest email
+
+Set `ENABLE_CLASS_GUEST_EMAILS=1` on the test deployment or in `.env.local`. Sign in as the instructor, open **Edit class**, select **Allow guest emails** under **Guest email sign-in**, and save. Open the class QR link (`/join/<class-code>`) in a private window or another browser profile. Sign in with a different email to join as a student. A returning guest can also sign in from the home page while an enrolled class allows guests.
+
+The class setting applies to verified guest accounts in that class. Switch it back to **Use site email rules** to close guest access to the class. Set `ENABLE_CLASS_GUEST_EMAILS=0` or leave it unset for a deployment that uses the site email rules for every class. With the default `ALLOWED_EMAIL_DOMAINS`, those rules accept `@uw.edu` addresses.
 
 ## Using real phones
 

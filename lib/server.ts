@@ -5,6 +5,7 @@
 // - Students see only their own moments and chats; class data has no names.
 import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
+import { emailAllowed } from "./access";
 import { currentUser, isStaffRole } from "./auth";
 import { addMembership, getClassById, getRole, getSession, userActorId, type Class, type Role, type Session, type User } from "./db";
 
@@ -40,10 +41,10 @@ export async function lectureAccess(
   const session = await getSession(code);
   if (!session) return null;
   const cls = session.class_id ? ((await getClassById(session.class_id)) ?? null) : null;
+  if (!cls && !emailAllowed(user.email)) return null;
   let role = cls ? await getRole(cls.id, user.id) : null;
-  if (cls && !role && opts.enroll) {
-    await addMembership(cls.id, user.id, "student");
-    role = "student";
+  if (cls && !role && opts.enroll && await addMembership(cls.id, user.id, "student")) {
+    role = await getRole(cls.id, user.id);
   }
   if (cls && !role) return null;
   return { session, cls, user, role, staff: isStaffRole(role), actor: userActorId(user.id) };

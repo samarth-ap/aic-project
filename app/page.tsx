@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { classGuestSignInEnabled } from "@/lib/access";
 import { appleConfigured, currentUser, emailLoginAvailable, googleConfigured, safeNext } from "@/lib/auth";
 import { IconBulb } from "@/components/icons";
 
@@ -48,7 +49,7 @@ export default async function Welcome({ searchParams }: { searchParams: Promise<
           )}
         </div>
         <p className="center small" style={{ color: "#cfcaf5", marginTop: 22, lineHeight: 1.6 }}>
-          {email ? "We email you a 6-digit code. No password." : "Sign in with your UW Google account."}
+          {email ? "We email you a 6-digit code. No password." : classGuestSignInEnabled() ? "Sign in with a university or invited guest account." : "Sign in with your UW Google account."}
           <br />
           I&apos;m a professor ·{" "}
           <Link href={profHref} style={{ color: "var(--gold)", textDecoration: "underline" }}>

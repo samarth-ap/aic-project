@@ -1,13 +1,14 @@
 import { createEmailCode, lastEmailCodeSent } from "@/lib/db";
-import { allowedDomains, emailAllowed, LoginError, sendEmailCode } from "@/lib/auth";
+import { validEmail } from "@/lib/access";
+import { emailSignInAllowed, emailSignInMessage, LoginError, sendEmailCode } from "@/lib/auth";
 import { error, json } from "@/lib/server";
 
-// POST /api/auth/email/start { email } -> emails a 6-digit code (or returns it in dev mode)
+// POST /api/auth/email/start { email, next? } -> emails a 6-digit code (or returns it in dev mode)
 export async function POST(req: Request) {
-  const { email } = await req.json().catch(() => ({}));
+  const { email, next } = await req.json().catch(() => ({}));
   const e = String(email ?? "").trim().toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return error("Enter your email address");
-  if (!emailAllowed(e)) return error(`Use your university email (${allowedDomains().map((d) => "@" + d).join(" or ")})`);
+  if (!validEmail(e)) return error("Enter your email address");
+  if (!(await emailSignInAllowed(e, next))) return error(emailSignInMessage());
   const last = await lastEmailCodeSent(e);
   if (last && Date.now() - last < 30_000) return error("We just sent a code. Wait a few seconds before asking again.", 429);
   try {

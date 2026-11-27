@@ -4,6 +4,7 @@
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { canSetClassGuestSignIn, emailAllowed } from "@/lib/access";
 import { currentUser, isStaffRole, signOut } from "@/lib/auth";
 import {
   addManualClarification,
@@ -44,8 +45,9 @@ async function me() {
 async function staffOfClass(code: string) {
   const u = await me();
   const c = await getClassByCode(code);
-  if (!c || !isStaffRole(await getRole(c.id, u.id))) throw new Error("Not allowed");
-  return { u, c };
+  const role = c ? await getRole(c.id, u.id) : null;
+  if (!c || !isStaffRole(role)) throw new Error("Not allowed");
+  return { u, c, role };
 }
 async function staffOfLecture(code: string) {
   const u = await me();
@@ -67,6 +69,7 @@ const dateMs = (v: string) => (v ? new Date(`${v}T12:00:00`).getTime() || null :
 
 export async function becomeProfessor() {
   const u = await me();
+  if (!emailAllowed(u.email)) redirect("/app");
   await setUserKind(u.id, "professor");
   redirect("/teach");
 }
@@ -111,18 +114,18 @@ export async function joinWithCode(_: unknown, f: FormData): Promise<{ error?: s
   if (!code) return { error: "Enter the code your professor is showing." };
   const c = await getClassByCode(code);
   if (c) {
-    await addMembership(c.id, u.id, "student");
+    if (!(await addMembership(c.id, u.id, "student"))) return { error: "Use your university email to join this class." };
     const now = await liveSessionsForClasses([c.id]);
     redirect(now[0] ? `/app/live/${now[0].code}` : `/app/class/${c.code}`);
   }
   const staff = await getClassByStaffCode(code);
   if (staff) {
-    await addMembership(staff.id, u.id, "ta");
+    if (!(await addMembership(staff.id, u.id, "ta"))) return { error: "Use your university email to join as a TA." };
     redirect(`/teach/${staff.code}`);
   }
   const s = await getSession(code);
   if (s?.class_id) {
-    await addMembership(s.class_id, u.id, "student");
+    if (!(await addMembership(s.class_id, u.id, "student"))) return { error: "Use your university email to join this class." };
     redirect(s.ended_at ? `/app/lecture/${s.code}` : `/app/live/${s.code}`);
   }
   return { error: "No class or lecture with that code. Check it and try again." };
@@ -142,6 +145,7 @@ export async function viewClarification(hotspotId: number, gotIt = false) {
 
 export async function newClass(_: unknown, f: FormData): Promise<{ error?: string }> {
   const u = await me();
+  if (!emailAllowed(u.email)) return { error: "Use your university email to create a class." };
   const short = str(f, "short", 30);
   const long = str(f, "long", 80);
   const term = makeTerm(str(f, "quarter", 10), str(f, "year", 4));
@@ -152,10 +156,11 @@ export async function newClass(_: unknown, f: FormData): Promise<{ error?: strin
 }
 
 export async function saveClassSettings(code: string, _: unknown, f: FormData): Promise<{ ok?: boolean; error?: string }> {
-  const { c } = await staffOfClass(code);
+  const { c, role } = await staffOfClass(code);
   const short = str(f, "short", 30);
   if (!short) return { error: "The course code can't be empty." };
   const long = str(f, "long", 80);
+  const guests = canSetClassGuestSignIn(role) ? f.get("allow_guests") : null;
   await updateClass(c.id, {
     name: long ? `${short} · ${long}` : short,
     term: makeTerm(str(f, "quarter", 10), str(f, "year", 4)),
@@ -163,14 +168,15 @@ export async function saveClassSettings(code: string, _: unknown, f: FormData): 
     exam_date: dateMs(str(f, "exam_date", 12)),
     audio_delete_on: dateMs(str(f, "audio_delete_on", 12)),
     graded_notes: str(f, "graded_notes", 4000),
+    ...(guests === "0" || guests === "1" ? { allow_guests: Number(guests) } : {}),
   });
   revalidatePath(`/teach/${code}`, "layout");
   return { ok: true };
 }
 
 export async function newClassCode(code: string) {
-  const { c } = await staffOfClass(code);
-  if ((await getRole(c.id, (await me()).id)) !== "instructor") throw new Error("Only the instructor can do that");
+  const { c, role } = await staffOfClass(code);
+  if (role !== "instructor") throw new Error("Only the instructor can do that");
   const next = await regenerateClassCode(c.id);
   redirect(`/teach/${next}/settings`);
 }

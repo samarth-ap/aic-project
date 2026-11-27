@@ -9,6 +9,7 @@
 // All times inside a lecture are milliseconds from the start of the professor's
 // recording (`t_ms`), set by the server, so every student shares one timeline.
 import crypto from "node:crypto";
+import { classEmailAllowed } from "./access";
 
 const PG_URL = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 export const usingPostgres = Boolean(PG_URL);
@@ -320,10 +321,13 @@ export async function upsertUser(email: string, name: string, picture = ""): Pro
        picture = CASE WHEN excluded.picture = '' THEN users.picture ELSE excluded.picture END`,
     [e, n || e.split("@")[0], picture, Date.now(), n],
   );
-  return (await one<User>("SELECT * FROM users WHERE email = ?", [e]))!;
+  return (await getUserByEmail(e))!;
 }
 export async function getUser(id: number): Promise<User | undefined> {
   return one<User>("SELECT * FROM users WHERE id = ?", [id]);
+}
+export async function getUserByEmail(email: string): Promise<User | undefined> {
+  return one<User>("SELECT * FROM users WHERE email = ?", [email.trim().toLowerCase()]);
 }
 export async function setUserKind(id: number, kind: UserKind) {
   await run("UPDATE users SET kind = ? WHERE id = ?", [kind, id]);
@@ -443,18 +447,19 @@ export async function getClassById(id: number): Promise<Class | undefined> {
 }
 export async function updateClass(
   id: number,
-  f: Partial<Pick<Class, "name" | "term" | "exam_name" | "exam_date" | "audio_delete_on" | "graded_notes">>,
+  f: Partial<Pick<Class, "name" | "term" | "exam_name" | "exam_date" | "audio_delete_on" | "graded_notes" | "allow_guests">>,
 ) {
   const c = await getClassById(id);
   if (!c) return;
   const m = { ...c, ...f };
-  await run("UPDATE classes SET name = ?, term = ?, exam_name = ?, exam_date = ?, audio_delete_on = ?, graded_notes = ? WHERE id = ?", [
+  await run("UPDATE classes SET name = ?, term = ?, exam_name = ?, exam_date = ?, audio_delete_on = ?, graded_notes = ?, allow_guests = COALESCE(?, allow_guests) WHERE id = ?", [
     m.name,
     m.term,
     m.exam_name,
     m.exam_date,
     m.audio_delete_on,
     m.graded_notes,
+    f.allow_guests ?? null,
     id,
   ]);
 }
@@ -471,26 +476,46 @@ export async function regenerateClassCode(id: number): Promise<string> {
 }
 
 const ROLE_RANK: Record<Role, number> = { student: 0, ta: 1, instructor: 2 };
-/** Adds a member; never downgrades an existing role. */
-export async function addMembership(classId: number, userId: number, role: Role) {
-  const cur = await getRole(classId, userId);
-  if (cur && ROLE_RANK[cur] >= ROLE_RANK[role]) return;
+async function classMember(classId: number, userId: number) {
+  return one<{ email: string; allow_guests: number; role: Role | null }>(
+    `SELECT u.email, c.allow_guests, m.role
+     FROM classes c JOIN users u ON u.id = ?
+     LEFT JOIN memberships m ON m.class_id = c.id AND m.user_id = u.id
+     WHERE c.id = ?`,
+    [userId, classId],
+  );
+}
+
+/** Returns whether the user joined, or already has access through a higher role. */
+export async function addMembership(classId: number, userId: number, role: Role): Promise<boolean> {
+  const member = await classMember(classId, userId);
+  if (!member || !classEmailAllowed(member.email, member.allow_guests, role)) return false;
+  const cur = member.role;
+  if (cur && ROLE_RANK[cur] >= ROLE_RANK[role]) return classEmailAllowed(member.email, member.allow_guests, cur);
   await run(
     `INSERT INTO memberships (class_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(class_id, user_id) DO UPDATE SET role = excluded.role`,
+     ON CONFLICT(class_id, user_id) DO UPDATE SET role = excluded.role
+     WHERE memberships.role = 'student' OR (memberships.role = 'ta' AND excluded.role = 'instructor')`,
     [classId, userId, role, Date.now()],
   );
+  return true;
 }
 export async function removeMembership(classId: number, userId: number) {
   await run("DELETE FROM memberships WHERE class_id = ? AND user_id = ? AND role = 'student'", [classId, userId]);
 }
 export async function getRole(classId: number, userId: number): Promise<Role | null> {
-  return (await one<{ role: Role }>("SELECT role FROM memberships WHERE class_id = ? AND user_id = ?", [classId, userId]))?.role ?? null;
+  const member = await classMember(classId, userId);
+  return member?.role && classEmailAllowed(member.email, member.allow_guests, member.role) ? member.role : null;
 }
 export async function classesForUser(userId: number): Promise<(Class & { role: Role })[]> {
-  return all<Class & { role: Role }>(
-    `SELECT c.*, m.role FROM memberships m JOIN classes c ON c.id = m.class_id WHERE m.user_id = ? ORDER BY c.created_at DESC`,
+  const memberships = await all<Class & { role: Role; member_email: string }>(
+    `SELECT c.*, m.role, u.email AS member_email FROM memberships m
+     JOIN classes c ON c.id = m.class_id JOIN users u ON u.id = m.user_id
+     WHERE m.user_id = ? ORDER BY c.created_at DESC`,
     [userId],
+  );
+  return memberships.flatMap(({ member_email, ...membership }) =>
+    classEmailAllowed(member_email, membership.allow_guests, membership.role) ? [membership] : [],
   );
 }
 /** Names only, for staff (class settings). Never joined with taps or chats. */
